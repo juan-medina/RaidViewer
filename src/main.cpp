@@ -23,31 +23,98 @@
 
 namespace {
 
-// --- Hotkey Configuration ---
-enum class hotkey_id : std::uint8_t {
-    prev = 1,
-    next = 2,
-    selection = 3,
-    close = 4,
+// --- Hotkey & Input Configuration ---
+enum class action_id : std::uint8_t {
+    prev = 0,
+    next = 1,
+    selection = 2,
+    close = 3,
 };
 
-struct hotkey_binding {
-    hotkey_id id;
-    UINT mod;
+struct key_combo {
+    UINT mod = 0;
+    UINT vk = 0;
+};
+
+struct global_hotkey_binding {
+    int id = 0;
+    action_id action = action_id::prev;
+    key_combo combo{};
+};
+
+struct window_key_binding {
+    action_id action = action_id::prev;
+    key_combo combo{};
+};
+
+struct named_vk {
+    std::wstring_view name;
     UINT vk;
 };
 
-constexpr std::array<hotkey_binding, 4> k_hotkeys = {{
-    {.id = hotkey_id::prev, .mod = MOD_NOREPEAT, .vk = VK_F13},
-    {.id = hotkey_id::next, .mod = MOD_NOREPEAT, .vk = VK_F14},
-    {.id = hotkey_id::selection, .mod = MOD_NOREPEAT, .vk = VK_F15},
-    {.id = hotkey_id::close, .mod = MOD_NOREPEAT, .vk = VK_F16},
+constexpr std::array<named_vk, 33> k_named_vks = {{
+    {.name = L"UP", .vk = VK_UP},
+    {.name = L"DOWN", .vk = VK_DOWN},
+    {.name = L"LEFT", .vk = VK_LEFT},
+    {.name = L"RIGHT", .vk = VK_RIGHT},
+    {.name = L"ENTER", .vk = VK_RETURN},
+    {.name = L"RETURN", .vk = VK_RETURN},
+    {.name = L"SPACE", .vk = VK_SPACE},
+    {.name = L"SPACEBAR", .vk = VK_SPACE},
+    {.name = L"ESC", .vk = VK_ESCAPE},
+    {.name = L"ESCAPE", .vk = VK_ESCAPE},
+    {.name = L"TAB", .vk = VK_TAB},
+    {.name = L"BACKSPACE", .vk = VK_BACK},
+    {.name = L"BACK", .vk = VK_BACK},
+    {.name = L"INSERT", .vk = VK_INSERT},
+    {.name = L"INS", .vk = VK_INSERT},
+    {.name = L"DELETE", .vk = VK_DELETE},
+    {.name = L"DEL", .vk = VK_DELETE},
+    {.name = L"HOME", .vk = VK_HOME},
+    {.name = L"END", .vk = VK_END},
+    {.name = L"PAGEUP", .vk = VK_PRIOR},
+    {.name = L"PGUP", .vk = VK_PRIOR},
+    {.name = L"PAGEDOWN", .vk = VK_NEXT},
+    {.name = L"PGDN", .vk = VK_NEXT},
+    {.name = L"PLUS", .vk = VK_OEM_PLUS},
+    {.name = L"MINUS", .vk = VK_OEM_MINUS},
+    {.name = L"COMMA", .vk = VK_OEM_COMMA},
+    {.name = L"PERIOD", .vk = VK_OEM_PERIOD},
+    {.name = L"MULTIPLY", .vk = VK_MULTIPLY},
+    {.name = L"ADD", .vk = VK_ADD},
+    {.name = L"SUBTRACT", .vk = VK_SUBTRACT},
+    {.name = L"DECIMAL", .vk = VK_DECIMAL},
+    {.name = L"DIVIDE", .vk = VK_DIVIDE},
+    {.name = L"PAUSE", .vk = VK_PAUSE},
 }};
 
 // --- Constants ---
 constexpr auto k_window_class_name = L"RaidViewerWindow";
 constexpr auto k_window_title = L"RaidViewer";
 constexpr auto k_images_dir_name = L"images";
+constexpr auto k_config_file_name = L"RaidViewer.ini";
+
+constexpr std::string_view k_default_ini_content =
+    "; RaidViewer Configuration\r\n"
+    ";\r\n"
+    "; Each action accepts one or more key combinations separated by commas.\r\n"
+    "; Modifiers: Control (or Ctrl), Alt, Shift, Win (combine with '+', e.g. Control+Alt+Q)\r\n"
+    "; Keys: F1-F24, A-Z, 0-9, NumPad0-NumPad9, Up, Down, Left, Right,\r\n"
+    ";       PageUp, PageDown, Home, End, Insert, Delete, Space, Enter, Esc, Tab, Backspace\r\n"
+    "\r\n"
+    "; Global hotkeys work at all times, even while playing your game.\r\n"
+    "[GlobalHotkeys]\r\n"
+    "Previous  = F13\r\n"
+    "Next      = F14\r\n"
+    "Selection = F15\r\n"
+    "Close     = F16, Control+Alt+Q\r\n"
+    "\r\n"
+    "; Window keys only work when the RaidViewer window itself is focused.\r\n"
+    "[WindowKeys]\r\n"
+    "Previous  = Up, Left\r\n"
+    "Next      = Down, Right\r\n"
+    "Selection = Enter, Space\r\n"
+    "Close     = Esc\r\n";
 
 // Custom deleter for HBITMAP
 using unique_bitmap = std::unique_ptr<std::remove_pointer_t<HBITMAP>, decltype([](HBITMAP bmp) -> void {
@@ -70,6 +137,33 @@ public:
     auto operator=(const find_file_handle &) -> find_file_handle & = delete;
     find_file_handle(find_file_handle &&) = delete;
     auto operator=(find_file_handle &&) -> find_file_handle & = delete;
+
+    [[nodiscard]] auto valid() const noexcept -> bool {
+        return handle_ != INVALID_HANDLE_VALUE && handle_ != nullptr;
+    }
+
+    [[nodiscard]] auto get() const noexcept -> HANDLE {
+        return handle_;
+    }
+
+private:
+    HANDLE handle_ = INVALID_HANDLE_VALUE;
+};
+
+class file_handle {
+public:
+    explicit file_handle(HANDLE handle) noexcept: handle_(handle) {}
+
+    ~file_handle() {
+        if(handle_ != INVALID_HANDLE_VALUE && handle_ != nullptr) {
+            CloseHandle(handle_);
+        }
+    }
+
+    file_handle(const file_handle &) = delete;
+    auto operator=(const file_handle &) -> file_handle & = delete;
+    file_handle(file_handle &&) = delete;
+    auto operator=(file_handle &&) -> file_handle & = delete;
 
     [[nodiscard]] auto valid() const noexcept -> bool {
         return handle_ != INVALID_HANDLE_VALUE && handle_ != nullptr;
@@ -319,7 +413,301 @@ struct app_state {
     int mon_width = 0;
     int mon_height = 0;
     std::wstring images_dir;
+    std::vector<global_hotkey_binding> global_hotkeys;
+    std::vector<window_key_binding> window_keys;
+    std::wstring footer_legend;
+    std::wstring close_keys_label;
 };
+
+struct action_config_spec {
+    action_id action;
+    const wchar_t *ini_key;
+    const wchar_t *default_global;
+    const wchar_t *default_window;
+    std::wstring_view legend_suffix;
+};
+
+constexpr std::array<action_config_spec, 4> k_action_specs = {{
+    {.action = action_id::prev,
+     .ini_key = L"Previous",
+     .default_global = L"F13",
+     .default_window = L"Up, Left",
+     .legend_suffix = L": Previous Strat"},
+    {.action = action_id::next,
+     .ini_key = L"Next",
+     .default_global = L"F14",
+     .default_window = L"Down, Right",
+     .legend_suffix = L": Next Strat"},
+    {.action = action_id::selection,
+     .ini_key = L"Selection",
+     .default_global = L"F15",
+     .default_window = L"Enter, Space",
+     .legend_suffix = L": Open Strat"},
+    {.action = action_id::close,
+     .ini_key = L"Close",
+     .default_global = L"F16, Control+Alt+Q",
+     .default_window = L"Esc",
+     .legend_suffix = L": Back / Close"},
+}};
+
+[[nodiscard]] auto trim_whitespace(std::wstring_view text) noexcept -> std::wstring_view {
+    const auto first = text.find_first_not_of(L" \t\r\n");
+    if(first == std::wstring_view::npos) {
+        return {};
+    }
+    const auto last = text.find_last_not_of(L" \t\r\n");
+    return text.substr(first, last - first + 1);
+}
+
+[[nodiscard]] auto to_upper_ascii(std::wstring_view text) -> std::wstring {
+    std::wstring result(text);
+    for(auto &chr: result) {
+        chr = static_cast<wchar_t>(std::towupper(chr));
+    }
+    return result;
+}
+
+[[nodiscard]] auto parse_modifier_token(std::wstring_view upper_token, UINT &out_mod) noexcept -> bool {
+    if(upper_token == L"CTRL" || upper_token == L"CONTROL") {
+        out_mod |= MOD_CONTROL;
+        return true;
+    }
+    if(upper_token == L"ALT") {
+        out_mod |= MOD_ALT;
+        return true;
+    }
+    if(upper_token == L"SHIFT") {
+        out_mod |= MOD_SHIFT;
+        return true;
+    }
+    if(upper_token == L"WIN" || upper_token == L"WINDOWS" || upper_token == L"SUPER") {
+        out_mod |= MOD_WIN;
+        return true;
+    }
+    return false;
+}
+
+[[nodiscard]] auto parse_function_key_vk(std::wstring_view upper_token, UINT &out_vk) noexcept -> bool {
+    if(upper_token.size() < 2 || upper_token.size() > 3 || upper_token.front() != L'F') {
+        return false;
+    }
+    int fn_num = 0;
+    for(const wchar_t chr: upper_token.substr(1)) {
+        if(chr < L'0' || chr > L'9') {
+            return false;
+        }
+        fn_num = (fn_num * 10) + static_cast<int>(chr - L'0');
+    }
+    if(fn_num < 1 || fn_num > 24) {
+        return false;
+    }
+    out_vk = static_cast<UINT>(VK_F1 + (fn_num - 1));
+    return true;
+}
+
+[[nodiscard]] auto parse_numpad_vk(std::wstring_view upper_token, UINT &out_vk) noexcept -> bool {
+    std::wstring_view suffix;
+    if(upper_token.starts_with(L"NUMPAD")) {
+        suffix = upper_token.substr(6);
+    } else if(upper_token.starts_with(L"NUM")) {
+        suffix = upper_token.substr(3);
+    } else {
+        return false;
+    }
+    if(suffix.size() == 1 && suffix.front() >= L'0' && suffix.front() <= L'9') {
+        out_vk = static_cast<UINT>(VK_NUMPAD0 + (suffix.front() - L'0'));
+        return true;
+    }
+    return false;
+}
+
+[[nodiscard]] auto parse_vk_token(std::wstring_view upper_token, UINT &out_vk) noexcept -> bool {
+    if(upper_token.empty()) {
+        return false;
+    }
+    if(upper_token.size() == 1) {
+        const wchar_t chr = upper_token.front();
+        if((chr >= L'A' && chr <= L'Z') || (chr >= L'0' && chr <= L'9')) {
+            out_vk = static_cast<UINT>(chr);
+            return true;
+        }
+    }
+    if(parse_function_key_vk(upper_token, out_vk) || parse_numpad_vk(upper_token, out_vk)) {
+        return true;
+    }
+    for(const auto &entry: k_named_vks) {
+        if(entry.name == upper_token) {
+            out_vk = entry.vk;
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] auto parse_key_combo(std::wstring_view combo_text,
+                                   std::wstring_view section,
+                                   std::wstring_view key_name,
+                                   key_combo &out_combo) -> bool {
+    key_combo parsed{};
+    std::size_t start = 0;
+    while(start <= combo_text.size()) {
+        const auto plus_pos = combo_text.find(L'+', start);
+        const bool is_last = (plus_pos == std::wstring_view::npos);
+        const auto raw_part = is_last ? combo_text.substr(start) : combo_text.substr(start, plus_pos - start);
+        const auto token = to_upper_ascii(trim_whitespace(raw_part));
+
+        if(is_last) {
+            if(!parse_vk_token(token, parsed.vk)) {
+                const std::wstring msg = L"Invalid key '" + std::wstring(trim_whitespace(raw_part)) + L"' in ["
+                                         + std::wstring(section) + L"] " + std::wstring(key_name) + L" ("
+                                         + std::wstring(k_config_file_name) + L").";
+                show_error_dialog(msg.c_str());
+                return false;
+            }
+            break;
+        }
+
+        if(!parse_modifier_token(token, parsed.mod)) {
+            const std::wstring msg = L"Invalid modifier '" + std::wstring(trim_whitespace(raw_part)) + L"' in ["
+                                     + std::wstring(section) + L"] " + std::wstring(key_name) + L" ("
+                                     + std::wstring(k_config_file_name) + L").";
+            show_error_dialog(msg.c_str());
+            return false;
+        }
+        start = plus_pos + 1;
+    }
+
+    out_combo = parsed;
+    return true;
+}
+
+[[nodiscard]] auto parse_combo_list(std::wstring_view raw_list,
+                                    std::wstring_view section,
+                                    std::wstring_view key_name,
+                                    std::vector<key_combo> &out_combos,
+                                    std::vector<std::wstring> &out_labels) -> bool {
+    std::size_t start = 0;
+    while(start <= raw_list.size()) {
+        const auto comma_pos = raw_list.find(L',', start);
+        const auto part =
+            (comma_pos == std::wstring_view::npos) ? raw_list.substr(start) : raw_list.substr(start, comma_pos - start);
+        const auto trimmed = trim_whitespace(part);
+        if(!trimmed.empty()) {
+            key_combo combo{};
+            if(!parse_key_combo(trimmed, section, key_name, combo)) {
+                return false;
+            }
+            out_combos.push_back(combo);
+            out_labels.emplace_back(trimmed);
+        }
+        if(comma_pos == std::wstring_view::npos) {
+            break;
+        }
+        start = comma_pos + 1;
+    }
+    return true;
+}
+
+[[nodiscard]] auto ensure_default_config_file(const std::wstring &config_path) -> bool {
+    if(GetFileAttributesW(config_path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        return true;
+    }
+    const DWORD attr_err = GetLastError();
+    if(attr_err != ERROR_FILE_NOT_FOUND && attr_err != ERROR_PATH_NOT_FOUND) {
+        report_win32_error(L"GetFileAttributesW for '" + config_path + L"'", attr_err);
+        return false;
+    }
+
+    const file_handle file(
+        CreateFileW(config_path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if(!file.valid()) {
+        report_win32_error(L"CreateFileW for '" + config_path + L"'");
+        return false;
+    }
+
+    DWORD bytes_written = 0;
+    const auto bytes_to_write = static_cast<DWORD>(k_default_ini_content.size());
+    if(WriteFile(file.get(), k_default_ini_content.data(), bytes_to_write, &bytes_written, nullptr) == FALSE
+       || bytes_written != bytes_to_write) {
+        report_win32_error(L"WriteFile for '" + config_path + L"'");
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] auto
+read_ini_value(const wchar_t *section, const wchar_t *key, const wchar_t *default_val, const std::wstring &config_path)
+    -> std::wstring {
+    std::array<wchar_t, 256> buffer{};
+    const DWORD len = GetPrivateProfileStringW(
+        section, key, default_val, buffer.data(), static_cast<DWORD>(buffer.size()), config_path.c_str());
+    return {buffer.data(), len};
+}
+
+[[nodiscard]] auto join_labels(const std::vector<std::wstring> &labels) -> std::wstring {
+    std::wstring joined;
+    for(std::size_t idx = 0; idx < labels.size(); ++idx) {
+        if(idx > 0) {
+            joined += L" / ";
+        }
+        joined += labels[idx];
+    }
+    return joined;
+}
+
+[[nodiscard]] auto load_key_config(const std::wstring &config_path, app_state &app) -> bool {
+    if(!ensure_default_config_file(config_path)) {
+        return false;
+    }
+
+    app.global_hotkeys.clear();
+    app.window_keys.clear();
+    app.footer_legend.clear();
+    app.close_keys_label.clear();
+
+    int next_hotkey_id = 1;
+    for(const auto &spec: k_action_specs) {
+        std::vector<std::wstring> action_labels;
+
+        const auto global_str = read_ini_value(L"GlobalHotkeys", spec.ini_key, spec.default_global, config_path);
+        std::vector<key_combo> global_combos;
+        if(!parse_combo_list(global_str, L"GlobalHotkeys", spec.ini_key, global_combos, action_labels)) {
+            return false;
+        }
+        for(const auto &combo: global_combos) {
+            app.global_hotkeys.push_back(global_hotkey_binding{
+                .id = next_hotkey_id++,
+                .action = spec.action,
+                .combo = combo,
+            });
+        }
+
+        const auto window_str = read_ini_value(L"WindowKeys", spec.ini_key, spec.default_window, config_path);
+        std::vector<key_combo> window_combos;
+        if(!parse_combo_list(window_str, L"WindowKeys", spec.ini_key, window_combos, action_labels)) {
+            return false;
+        }
+        for(const auto &combo: window_combos) {
+            app.window_keys.push_back(window_key_binding{
+                .action = spec.action,
+                .combo = combo,
+            });
+        }
+
+        const auto keys_summary = action_labels.empty() ? std::wstring(L"Unbound") : join_labels(action_labels);
+        if(!app.footer_legend.empty()) {
+            app.footer_legend += L"    |    ";
+        }
+        app.footer_legend += keys_summary;
+        app.footer_legend += spec.legend_suffix;
+
+        if(spec.action == action_id::close) {
+            app.close_keys_label = keys_summary;
+        }
+    }
+
+    return true;
+}
 
 [[nodiscard]] auto get_visible_row_count(const app_state &app) noexcept -> int {
     const int available_h = app.mon_height - 270;
@@ -600,13 +988,11 @@ auto CALLBACK enum_monitors_proc(HMONITOR h_mon, HDC /*hdc*/, LPRECT /*rect*/, L
         SelectObject(hdc_mem, font_item);
         SetTextColor(hdc_mem, RGB(180, 180, 180));
         RECT empty_rect{80, 200, app.mon_width - 80, 320};
-        DrawTextW(hdc_mem,
-                  L"No folders found inside 'images'.\n"
-                  L"Create strategy subfolders (e.g. 'M12S - Phase 1') inside the 'images' folder.\n"
-                  L"(F16 or Esc to close)",
-                  -1,
-                  &empty_rect,
-                  DT_LEFT | DT_NOPREFIX);
+        const std::wstring empty_msg =
+            L"No folders found inside 'images'.\n"
+            L"Create strategy subfolders (e.g. 'M12S - Phase 1') inside the 'images' folder.\n("
+            + app.close_keys_label + L" to close)";
+        DrawTextW(hdc_mem, empty_msg.c_str(), -1, &empty_rect, DT_LEFT | DT_NOPREFIX);
     } else {
         const int start_y = 150;
         const int row_h = 64;
@@ -667,12 +1053,8 @@ auto CALLBACK enum_monitors_proc(HMONITOR h_mon, HDC /*hdc*/, LPRECT /*rect*/, L
     SelectObject(hdc_mem, font_footer);
     SetTextColor(hdc_mem, RGB(139, 148, 158));
     RECT footer_rect{80, footer_line_y + 10, app.mon_width - 80, app.mon_height - 15};
-    DrawTextW(hdc_mem,
-              L"F13 / Up / Left: Previous Strat    |    F14 / Down / Right: Next Strat    |    "
-              L"F15 / Enter / Space: Open Strat    |    F16 / Esc: Back / Close",
-              -1,
-              &footer_rect,
-              DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    DrawTextW(
+        hdc_mem, app.footer_legend.c_str(), -1, &footer_rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
 
     BitBlt(hdc, 0, 0, app.mon_width, app.mon_height, hdc_mem, 0, 0, SRCCOPY);
 
@@ -710,28 +1092,26 @@ void render_empty_folder_notice(HDC hdc, const app_state &app, const std::wstrin
                              L"Segoe UI");
     auto *old_font = SelectObject(hdc, font);
 
-    const std::wstring msg = L"No images found in '" + folder_name + L"'.\nPress F16 / Esc to return to folder list.";
+    const std::wstring msg =
+        L"No images found in '" + folder_name + L"'.\nPress " + app.close_keys_label + L" to return to folder list.";
     DrawTextW(hdc, msg.c_str(), -1, &full_rect, DT_CENTER | DT_VCENTER | DT_NOPREFIX);
 
     SelectObject(hdc, old_font);
     DeleteObject(font);
 }
 
-[[nodiscard]] auto handle_hotkey(HWND hwnd, app_state &app, WPARAM w_param) -> bool {
-    const auto hotkey = static_cast<hotkey_id>(w_param);
-    if(hotkey == hotkey_id::close) {
+[[nodiscard]] auto execute_action(HWND hwnd, app_state &app, action_id action) -> bool {
+    switch(action) {
+    case action_id::close:
         handle_close_action(hwnd, app);
         return true;
-    }
-
-    switch(hotkey) {
-    case hotkey_id::next:
+    case action_id::next:
         select_next(app);
         break;
-    case hotkey_id::prev:
+    case action_id::prev:
         select_previous(app);
         break;
-    case hotkey_id::selection:
+    case action_id::selection:
         if(app.mode != view_mode::folder_list) {
             return true;
         }
@@ -739,11 +1119,6 @@ void render_empty_folder_notice(HDC hdc, const app_state &app, const std::wstrin
             return false;
         }
         break;
-    default: {
-        const std::wstring msg = L"Received unknown hotkey ID: " + std::to_wstring(w_param);
-        show_error_dialog(msg.c_str());
-        return false;
-    }
     }
 
     InvalidateRect(hwnd, nullptr, FALSE);
@@ -751,35 +1126,46 @@ void render_empty_folder_notice(HDC hdc, const app_state &app, const std::wstrin
     return true;
 }
 
-[[nodiscard]] auto handle_keydown(HWND hwnd, app_state &app, WPARAM w_param) -> bool {
-    switch(w_param) {
-    case VK_DOWN:
-    case VK_RIGHT:
-        select_next(app);
-        break;
-    case VK_UP:
-    case VK_LEFT:
-        select_previous(app);
-        break;
-    case VK_RETURN:
-    case VK_SPACE:
-        if(app.mode != view_mode::folder_list) {
-            return true;
+[[nodiscard]] auto handle_hotkey(HWND hwnd, app_state &app, WPARAM w_param) -> bool {
+    const auto hotkey_id = static_cast<int>(w_param);
+    for(const auto &binding: app.global_hotkeys) {
+        if(binding.id == hotkey_id) {
+            return execute_action(hwnd, app, binding.action);
         }
-        if(!open_selected_folder(app)) {
-            return false;
-        }
-        break;
-    case VK_ESCAPE:
-        handle_close_action(hwnd, app);
-        return true;
-    default:
-        return true;
     }
 
-    InvalidateRect(hwnd, nullptr, FALSE);
-    UpdateWindow(hwnd);
-    return true;
+    const std::wstring msg = L"Received unknown hotkey ID: " + std::to_wstring(w_param);
+    show_error_dialog(msg.c_str());
+    return false;
+}
+
+[[nodiscard]] auto get_active_modifiers() noexcept -> UINT {
+    UINT mods = 0;
+    if((GetKeyState(VK_CONTROL) & 0x8000) != 0) {
+        mods |= MOD_CONTROL;
+    }
+    if((GetKeyState(VK_MENU) & 0x8000) != 0) {
+        mods |= MOD_ALT;
+    }
+    if((GetKeyState(VK_SHIFT) & 0x8000) != 0) {
+        mods |= MOD_SHIFT;
+    }
+    if((GetKeyState(VK_LWIN) & 0x8000) != 0 || (GetKeyState(VK_RWIN) & 0x8000) != 0) {
+        mods |= MOD_WIN;
+    }
+    return mods;
+}
+
+[[nodiscard]] auto match_window_key(const app_state &app, WPARAM w_param, action_id &out_action) noexcept -> bool {
+    const auto vkey = static_cast<UINT>(w_param);
+    const UINT active_mod = get_active_modifiers();
+    for(const auto &binding: app.window_keys) {
+        if(binding.combo.vk == vkey && binding.combo.mod == active_mod) {
+            out_action = binding.action;
+            return true;
+        }
+    }
+    return false;
 }
 
 [[nodiscard]] auto handle_paint(HWND hwnd, const app_state &app) -> bool {
@@ -848,12 +1234,21 @@ auto CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM w_param, LPARAM l_param) noex
         return 0;
     }
 
-    case WM_KEYDOWN: {
+    case WM_KEYDOWN:
+    case WM_SYSKEYDOWN: {
         auto *app = get_app_state(hwnd);
-        if(app == nullptr || !handle_keydown(hwnd, *app, w_param)) {
+        if(app == nullptr) {
             PostQuitMessage(EXIT_FAILURE);
+            return 0;
         }
-        return 0;
+        action_id action = action_id::prev;
+        if(match_window_key(*app, w_param, action)) {
+            if(!execute_action(hwnd, *app, action)) {
+                PostQuitMessage(EXIT_FAILURE);
+            }
+            return 0;
+        }
+        break;
     }
 
     case WM_ERASEBKGND:
@@ -905,31 +1300,31 @@ private:
     Gdiplus::Status status_ = Gdiplus::GenericError;
 };
 
-[[nodiscard]] auto register_hotkeys(HWND hwnd) -> bool {
-    return std::ranges::all_of(k_hotkeys, [hwnd](const auto &binding) -> bool {
-        if(RegisterHotKey(hwnd, static_cast<int>(binding.id), binding.mod, binding.vk) == FALSE) {
+[[nodiscard]] auto register_hotkeys(HWND hwnd, const std::vector<global_hotkey_binding> &bindings) -> bool {
+    return std::ranges::all_of(bindings, [hwnd](const auto &binding) -> bool {
+        if(RegisterHotKey(hwnd, binding.id, binding.combo.mod | MOD_NOREPEAT, binding.combo.vk) == FALSE) {
             const DWORD err_code = GetLastError();
             DestroyWindow(hwnd);
-            report_win32_error(L"RegisterHotKey (ID " + std::to_wstring(static_cast<int>(binding.id)) + L")", err_code);
+            report_win32_error(L"RegisterHotKey (ID " + std::to_wstring(binding.id) + L")", err_code);
             return false;
         }
         return true;
     });
 }
 
-void unregister_hotkeys(HWND hwnd) noexcept {
-    for(const auto &[hotkey, mod, vk]: k_hotkeys) {
-        UnregisterHotKey(hwnd, static_cast<int>(hotkey));
+void unregister_hotkeys(HWND hwnd, const std::vector<global_hotkey_binding> &bindings) noexcept {
+    for(const auto &binding: bindings) {
+        UnregisterHotKey(hwnd, binding.id);
     }
 }
 
-[[nodiscard]] auto run_message_loop(HWND hwnd) -> int {
+[[nodiscard]] auto run_message_loop(HWND hwnd, const std::vector<global_hotkey_binding> &bindings) -> int {
     MSG msg{};
     while(true) {
         const BOOL get_result = GetMessageW(&msg, nullptr, 0, 0);
         if(get_result < 0) {
             const DWORD err_code = GetLastError();
-            unregister_hotkeys(hwnd);
+            unregister_hotkeys(hwnd, bindings);
             DestroyWindow(hwnd);
             report_win32_error(L"GetMessageW", err_code);
             return EXIT_FAILURE;
@@ -940,7 +1335,7 @@ void unregister_hotkeys(HWND hwnd) noexcept {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
-    unregister_hotkeys(hwnd);
+    unregister_hotkeys(hwnd, bindings);
     return static_cast<int>(msg.wParam);
 }
 
@@ -1005,14 +1400,24 @@ auto run_app() -> int {
         .mon_width = mon_width,
         .mon_height = mon_height,
         .images_dir = images_dir,
+        .global_hotkeys = {},
+        .window_keys = {},
+        .footer_legend = {},
+        .close_keys_label = {},
     };
 
-    // 5. Discover strategy folders inside images/
+    // 5. Load or generate RaidViewer.ini next to the executable
+    const auto config_path = join_path(exe_dir, k_config_file_name);
+    if(!load_key_config(config_path, app)) {
+        return EXIT_FAILURE;
+    }
+
+    // 6. Discover strategy folders inside images/
     if(!discover_folders(app)) {
         return EXIT_FAILURE;
     }
 
-    // 6. Create borderless fullscreen window
+    // 7. Create borderless fullscreen window
     auto *cursor = LoadCursor(nullptr, IDC_ARROW);
     if(cursor == nullptr) {
         report_win32_error(L"LoadCursor(IDC_ARROW)");
@@ -1048,11 +1453,11 @@ auto run_app() -> int {
         return EXIT_FAILURE;
     }
 
-    // 7. Register Global Hotkeys & run event loop
-    if(!register_hotkeys(hwnd)) {
+    // 8. Register Global Hotkeys & run event loop
+    if(!register_hotkeys(hwnd, app.global_hotkeys)) {
         return EXIT_FAILURE;
     }
-    return run_message_loop(hwnd);
+    return run_message_loop(hwnd, app.global_hotkeys);
 }
 
 } // namespace
