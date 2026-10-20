@@ -20,9 +20,11 @@ target_compile_definitions(RaidViewer PRIVATE
     _UNICODE
     WIN32_LEAN_AND_MEAN
     NOMINMAX
+    _HAS_EXCEPTIONS=0
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    string(REPLACE "/EHsc" "/EHs-c-" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
     string(REPLACE "/O2" "/O1" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
     string(REPLACE "/Ob2" "/Ob1" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
     target_compile_options(RaidViewer PRIVATE
@@ -47,6 +49,7 @@ else()
         -pedantic
         -Werror
         -fno-rtti
+        -fno-exceptions
         $<$<CONFIG:Release>:-ffunction-sections>
         $<$<CONFIG:Release>:-fdata-sections>
     )

@@ -14,9 +14,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cwctype>
-#include <exception>
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -97,27 +95,13 @@ struct strat_folder {
     bool loaded = false;
 };
 
-auto to_utf8(std::wstring_view wide) -> std::string {
-    if(wide.empty()) {
-        return {};
-    }
-    const int size_needed =
-        WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
-    if(size_needed <= 0) {
-        return "<encoding error>";
-    }
-    std::string result(static_cast<std::size_t>(size_needed), '\0');
-    WideCharToMultiByte(
-        CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), result.data(), size_needed, nullptr, nullptr);
-    return result;
+void show_error_dialog(const wchar_t *message) noexcept {
+    MessageBoxW(nullptr, message, L"RaidViewer Fatal Error", MB_OK | MB_ICONERROR | MB_TOPMOST);
 }
 
-auto format_win32_error(std::string_view action, DWORD error_code = GetLastError()) -> std::string {
-    return std::string(action) + " failed (Win32 error " + std::to_string(error_code) + ").";
-}
-
-void show_error_dialog(const char *message) noexcept {
-    MessageBoxA(nullptr, message, "RaidViewer Fatal Error", MB_OK | MB_ICONERROR | MB_TOPMOST);
+void report_win32_error(std::wstring_view action, DWORD error_code = GetLastError()) {
+    const std::wstring msg = std::wstring(action) + L" failed (Win32 error " + std::to_wstring(error_code) + L").";
+    show_error_dialog(msg.c_str());
 }
 
 [[nodiscard]] auto join_path(std::wstring_view base, std::wstring_view child) -> std::wstring {
@@ -135,18 +119,21 @@ void show_error_dialog(const char *message) noexcept {
 }
 
 // Get the directory where RaidViewer.exe lives
-auto get_exe_directory() -> std::wstring {
+[[nodiscard]] auto get_exe_directory(std::wstring &out_dir) -> bool {
     std::array<wchar_t, MAX_PATH> buffer{};
     const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), MAX_PATH);
     if(length == 0 || length >= MAX_PATH) {
-        throw std::runtime_error(format_win32_error("GetModuleFileNameW"));
+        report_win32_error(L"GetModuleFileNameW");
+        return false;
     }
     const std::wstring_view full_path(buffer.data(), length);
     const auto last_slash = full_path.find_last_of(L"\\/");
     if(last_slash == std::wstring_view::npos) {
-        throw std::runtime_error("Executable parent directory is empty.");
+        show_error_dialog(L"Executable parent directory is empty.");
+        return false;
     }
-    return std::wstring(full_path.substr(0, last_slash));
+    out_dir = std::wstring(full_path.substr(0, last_slash));
+    return true;
 }
 
 [[nodiscard]] auto is_image_file(std::wstring_view filename) -> bool {
@@ -169,30 +156,39 @@ auto get_exe_directory() -> std::wstring {
 
 // Loads PNG/BMP/JPG, scales to screen size conserving aspect ratio, fills
 // letterbox with black
-auto bake_slide_to_screen_bitmap(const std::wstring &file_path, int screen_w, int screen_h) -> unique_bitmap {
+[[nodiscard]] auto bake_slide_to_screen_bitmap(const std::wstring &file_path, int screen_w, int screen_h)
+    -> unique_bitmap {
     if(screen_w <= 0 || screen_h <= 0) {
-        throw std::runtime_error("Invalid screen dimensions for slide baking.");
+        show_error_dialog(L"Invalid screen dimensions for slide baking.");
+        return nullptr;
     }
 
     Gdiplus::Bitmap src(file_path.c_str());
     const auto status = src.GetLastStatus();
     if(status != Gdiplus::Ok) {
-        throw std::runtime_error("GDI+ failed to load image '" + to_utf8(file_path) + "' (Gdiplus::Status "
-                                 + std::to_string(static_cast<int>(status)) + ").");
+        const std::wstring msg = L"GDI+ failed to load image '" + file_path + L"' (Gdiplus::Status "
+                                 + std::to_wstring(static_cast<int>(status)) + L").";
+        show_error_dialog(msg.c_str());
+        return nullptr;
     }
     if(src.GetWidth() == 0 || src.GetHeight() == 0) {
-        throw std::runtime_error("Image has zero width or height: '" + to_utf8(file_path) + "'.");
+        const std::wstring msg = L"Image has zero width or height: '" + file_path + L"'.";
+        show_error_dialog(msg.c_str());
+        return nullptr;
     }
 
     auto *hdc_screen = GetDC(nullptr);
     if(hdc_screen == nullptr) {
-        throw std::runtime_error(format_win32_error("GetDC(nullptr)"));
+        report_win32_error(L"GetDC(nullptr)");
+        return nullptr;
     }
 
     auto *hdc_mem = CreateCompatibleDC(hdc_screen);
     if(hdc_mem == nullptr) {
+        const DWORD err_code = GetLastError();
         ReleaseDC(nullptr, hdc_screen);
-        throw std::runtime_error(format_win32_error("CreateCompatibleDC"));
+        report_win32_error(L"CreateCompatibleDC", err_code);
+        return nullptr;
     }
 
     unique_bitmap bitmap(CreateCompatibleBitmap(hdc_screen, screen_w, screen_h));
@@ -200,7 +196,8 @@ auto bake_slide_to_screen_bitmap(const std::wstring &file_path, int screen_w, in
         const DWORD err_code = GetLastError();
         DeleteDC(hdc_mem);
         ReleaseDC(nullptr, hdc_screen);
-        throw std::runtime_error(format_win32_error("CreateCompatibleBitmap", err_code));
+        report_win32_error(L"CreateCompatibleBitmap", err_code);
+        return nullptr;
     }
 
     auto *old_bmp = SelectObject(hdc_mem, bitmap.get());
@@ -208,7 +205,8 @@ auto bake_slide_to_screen_bitmap(const std::wstring &file_path, int screen_w, in
         const DWORD err_code = GetLastError();
         DeleteDC(hdc_mem);
         ReleaseDC(nullptr, hdc_screen);
-        throw std::runtime_error(format_win32_error("SelectObject(bitmap)", err_code));
+        report_win32_error(L"SelectObject(bitmap)", err_code);
+        return nullptr;
     }
 
     const RECT full_rect{0, 0, screen_w, screen_h};
@@ -218,7 +216,8 @@ auto bake_slide_to_screen_bitmap(const std::wstring &file_path, int screen_w, in
         SelectObject(hdc_mem, old_bmp);
         DeleteDC(hdc_mem);
         ReleaseDC(nullptr, hdc_screen);
-        throw std::runtime_error(format_win32_error("FillRect", err_code));
+        report_win32_error(L"FillRect", err_code);
+        return nullptr;
     }
 
     const auto scale =
@@ -234,7 +233,8 @@ auto bake_slide_to_screen_bitmap(const std::wstring &file_path, int screen_w, in
         SelectObject(hdc_mem, old_bmp);
         DeleteDC(hdc_mem);
         ReleaseDC(nullptr, hdc_screen);
-        throw std::runtime_error("Failed to create Gdiplus::Graphics context.");
+        show_error_dialog(L"Failed to create Gdiplus::Graphics context.");
+        return nullptr;
     }
     graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
     graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
@@ -245,14 +245,16 @@ auto bake_slide_to_screen_bitmap(const std::wstring &file_path, int screen_w, in
     ReleaseDC(nullptr, hdc_screen);
 
     if(draw_status != Gdiplus::Ok) {
-        throw std::runtime_error("Gdiplus::Graphics::DrawImage failed for '" + to_utf8(file_path)
-                                 + "' (Gdiplus::Status " + std::to_string(static_cast<int>(draw_status)) + ").");
+        const std::wstring msg = L"Gdiplus::Graphics::DrawImage failed for '" + file_path + L"' (Gdiplus::Status "
+                                 + std::to_wstring(static_cast<int>(draw_status)) + L").";
+        show_error_dialog(msg.c_str());
+        return nullptr;
     }
 
     return bitmap;
 }
 
-void load_folder_slides(strat_folder &folder, int screen_w, int screen_h) {
+[[nodiscard]] auto load_folder_slides(strat_folder &folder, int screen_w, int screen_h) -> bool {
     folder.slides.clear();
     std::vector<std::wstring> image_names;
 
@@ -262,10 +264,11 @@ void load_folder_slides(strat_folder &folder, int screen_w, int screen_h) {
     if(!find_handle.valid()) {
         const DWORD err_code = GetLastError();
         if(err_code != ERROR_FILE_NOT_FOUND) {
-            throw std::runtime_error(format_win32_error("FindFirstFileW in '" + to_utf8(folder.path) + "'", err_code));
+            report_win32_error(L"FindFirstFileW in '" + folder.path + L"'", err_code);
+            return false;
         }
         folder.loaded = true;
-        return;
+        return true;
     }
 
     while(true) {
@@ -283,7 +286,8 @@ void load_folder_slides(strat_folder &folder, int screen_w, int screen_h) {
 
     const DWORD iter_err = GetLastError();
     if(iter_err != ERROR_NO_MORE_FILES) {
-        throw std::runtime_error(format_win32_error("FindNextFileW in '" + to_utf8(folder.path) + "'", iter_err));
+        report_win32_error(L"FindNextFileW in '" + folder.path + L"'", iter_err);
+        return false;
     }
 
     std::ranges::sort(image_names, [](const auto &lhs, const auto &rhs) -> bool {
@@ -295,9 +299,14 @@ void load_folder_slides(strat_folder &folder, int screen_w, int screen_h) {
     });
 
     for(const auto &name: image_names) {
-        folder.slides.push_back(bake_slide_to_screen_bitmap(join_path(folder.path, name), screen_w, screen_h));
+        auto slide = bake_slide_to_screen_bitmap(join_path(folder.path, name), screen_w, screen_h);
+        if(!slide) {
+            return false;
+        }
+        folder.slides.push_back(std::move(slide));
     }
     folder.loaded = true;
+    return true;
 }
 
 // --- Application State ---
@@ -366,15 +375,18 @@ void select_previous(app_state &app) noexcept {
     }
 }
 
-void open_selected_folder(app_state &app) {
+[[nodiscard]] auto open_selected_folder(app_state &app) -> bool {
     if(app.mode == view_mode::folder_list && !app.folders.empty()) {
         auto &folder = app.folders[app.selected_folder_index];
         if(!folder.loaded) {
-            load_folder_slides(folder, app.mon_width, app.mon_height);
+            if(!load_folder_slides(folder, app.mon_width, app.mon_height)) {
+                return false;
+            }
         }
         app.current_slide_index = 0;
         app.mode = view_mode::image_viewer;
     }
+    return true;
 }
 
 void handle_close_action(HWND hwnd, app_state &app) noexcept {
@@ -387,7 +399,7 @@ void handle_close_action(HWND hwnd, app_state &app) noexcept {
     }
 }
 
-void discover_folders(app_state &app) {
+[[nodiscard]] auto discover_folders(app_state &app) -> bool {
     app.folders.clear();
     bool has_loose_images = false;
 
@@ -397,8 +409,8 @@ void discover_folders(app_state &app) {
     if(!find_handle.valid()) {
         const DWORD err_code = GetLastError();
         if(err_code != ERROR_FILE_NOT_FOUND) {
-            throw std::runtime_error(
-                format_win32_error("FindFirstFileW in '" + to_utf8(app.images_dir) + "'", err_code));
+            report_win32_error(L"FindFirstFileW in '" + app.images_dir + L"'", err_code);
+            return false;
         }
     } else {
         while(true) {
@@ -423,8 +435,8 @@ void discover_folders(app_state &app) {
 
         const DWORD iter_err = GetLastError();
         if(iter_err != ERROR_NO_MORE_FILES) {
-            throw std::runtime_error(
-                format_win32_error("FindNextFileW in '" + to_utf8(app.images_dir) + "'", iter_err));
+            report_win32_error(L"FindNextFileW in '" + app.images_dir + L"'", iter_err);
+            return false;
         }
     }
 
@@ -449,6 +461,7 @@ void discover_folders(app_state &app) {
         app.selected_folder_index = 0;
     }
     app.scroll_offset = 0;
+    return true;
 }
 
 struct monitor_enum_context {
@@ -472,34 +485,41 @@ auto CALLBACK enum_monitors_proc(HMONITOR h_mon, HDC /*hdc*/, LPRECT /*rect*/, L
     return TRUE;
 }
 
-auto get_all_monitor_rects() -> std::vector<RECT> {
+[[nodiscard]] auto get_all_monitor_rects(std::vector<RECT> &out_rects) -> bool {
     monitor_enum_context ctx{};
     auto *const ctx_ptr = &ctx;
     if(EnumDisplayMonitors(nullptr, nullptr, enum_monitors_proc, std::bit_cast<LPARAM>(ctx_ptr)) == FALSE) {
         if(ctx.failed) {
-            throw std::runtime_error(format_win32_error("GetMonitorInfoW", ctx.error_code));
+            report_win32_error(L"GetMonitorInfoW", ctx.error_code);
+            return false;
         }
-        throw std::runtime_error(format_win32_error("EnumDisplayMonitors"));
+        report_win32_error(L"EnumDisplayMonitors");
+        return false;
     }
     if(ctx.failed) {
-        throw std::runtime_error(format_win32_error("GetMonitorInfoW", ctx.error_code));
+        report_win32_error(L"GetMonitorInfoW", ctx.error_code);
+        return false;
     }
     if(ctx.rects.empty()) {
-        throw std::runtime_error("No display monitors were detected by EnumDisplayMonitors.");
+        show_error_dialog(L"No display monitors were detected by EnumDisplayMonitors.");
+        return false;
     }
-    return ctx.rects;
+    out_rects = std::move(ctx.rects);
+    return true;
 }
 
-void render_folder_list(HDC hdc, const app_state &app) {
+[[nodiscard]] auto render_folder_list(HDC hdc, const app_state &app) -> bool {
     auto *hdc_mem = CreateCompatibleDC(hdc);
     if(hdc_mem == nullptr) {
-        throw std::runtime_error(format_win32_error("CreateCompatibleDC in render_folder_list"));
+        report_win32_error(L"CreateCompatibleDC in render_folder_list");
+        return false;
     }
     auto *hbm_mem = CreateCompatibleBitmap(hdc, app.mon_width, app.mon_height);
     if(hbm_mem == nullptr) {
         const DWORD err_code = GetLastError();
         DeleteDC(hdc_mem);
-        throw std::runtime_error(format_win32_error("CreateCompatibleBitmap in render_folder_list", err_code));
+        report_win32_error(L"CreateCompatibleBitmap in render_folder_list", err_code);
+        return false;
     }
     auto *old_bmp = SelectObject(hdc_mem, hbm_mem);
 
@@ -662,6 +682,7 @@ void render_folder_list(HDC hdc, const app_state &app) {
     SelectObject(hdc_mem, old_bmp);
     DeleteObject(hbm_mem);
     DeleteDC(hdc_mem);
+    return true;
 }
 
 void render_empty_folder_notice(HDC hdc, const app_state &app, const std::wstring &folder_name) {
@@ -696,11 +717,11 @@ void render_empty_folder_notice(HDC hdc, const app_state &app, const std::wstrin
     DeleteObject(font);
 }
 
-void handle_hotkey(HWND hwnd, app_state &app, WPARAM w_param) {
+[[nodiscard]] auto handle_hotkey(HWND hwnd, app_state &app, WPARAM w_param) -> bool {
     const auto hotkey = static_cast<hotkey_id>(w_param);
     if(hotkey == hotkey_id::close) {
         handle_close_action(hwnd, app);
-        return;
+        return true;
     }
 
     switch(hotkey) {
@@ -712,19 +733,25 @@ void handle_hotkey(HWND hwnd, app_state &app, WPARAM w_param) {
         break;
     case hotkey_id::selection:
         if(app.mode != view_mode::folder_list) {
-            return;
+            return true;
         }
-        open_selected_folder(app);
+        if(!open_selected_folder(app)) {
+            return false;
+        }
         break;
-    default:
-        throw std::runtime_error("Received unknown hotkey ID: " + std::to_string(w_param));
+    default: {
+        const std::wstring msg = L"Received unknown hotkey ID: " + std::to_wstring(w_param);
+        show_error_dialog(msg.c_str());
+        return false;
+    }
     }
 
     InvalidateRect(hwnd, nullptr, FALSE);
     UpdateWindow(hwnd);
+    return true;
 }
 
-void handle_keydown(HWND hwnd, app_state &app, WPARAM w_param) {
+[[nodiscard]] auto handle_keydown(HWND hwnd, app_state &app, WPARAM w_param) -> bool {
     switch(w_param) {
     case VK_DOWN:
     case VK_RIGHT:
@@ -737,125 +764,129 @@ void handle_keydown(HWND hwnd, app_state &app, WPARAM w_param) {
     case VK_RETURN:
     case VK_SPACE:
         if(app.mode != view_mode::folder_list) {
-            return;
+            return true;
         }
-        open_selected_folder(app);
+        if(!open_selected_folder(app)) {
+            return false;
+        }
         break;
     case VK_ESCAPE:
         handle_close_action(hwnd, app);
-        return;
+        return true;
     default:
-        return;
+        return true;
     }
 
     InvalidateRect(hwnd, nullptr, FALSE);
     UpdateWindow(hwnd);
+    return true;
 }
 
-void handle_paint(HWND hwnd, const app_state &app) {
+[[nodiscard]] auto handle_paint(HWND hwnd, const app_state &app) -> bool {
     PAINTSTRUCT paint{};
     auto *hdc = BeginPaint(hwnd, &paint);
     if(hdc == nullptr) {
-        throw std::runtime_error(format_win32_error("BeginPaint"));
+        report_win32_error(L"BeginPaint");
+        return false;
     }
 
-    try {
-        if(app.mode == view_mode::image_viewer && !app.folders.empty()) {
-            const auto &cur_folder = app.folders[app.selected_folder_index];
-            if(!cur_folder.slides.empty()) {
-                auto *hdc_mem = CreateCompatibleDC(hdc);
-                if(hdc_mem == nullptr) {
-                    throw std::runtime_error(format_win32_error("CreateCompatibleDC in handle_paint"));
-                }
-                auto *old_bmp = SelectObject(hdc_mem, cur_folder.slides[app.current_slide_index].get());
-
-                BitBlt(hdc, 0, 0, app.mon_width, app.mon_height, hdc_mem, 0, 0, SRCCOPY);
-
-                SelectObject(hdc_mem, old_bmp);
-                DeleteDC(hdc_mem);
-            } else {
-                render_empty_folder_notice(hdc, app, cur_folder.name);
+    bool paint_ok = true;
+    if(app.mode == view_mode::image_viewer && !app.folders.empty()) {
+        const auto &cur_folder = app.folders[app.selected_folder_index];
+        if(!cur_folder.slides.empty()) {
+            auto *hdc_mem = CreateCompatibleDC(hdc);
+            if(hdc_mem == nullptr) {
+                const DWORD err_code = GetLastError();
+                EndPaint(hwnd, &paint);
+                report_win32_error(L"CreateCompatibleDC in handle_paint", err_code);
+                return false;
             }
+            auto *old_bmp = SelectObject(hdc_mem, cur_folder.slides[app.current_slide_index].get());
+
+            BitBlt(hdc, 0, 0, app.mon_width, app.mon_height, hdc_mem, 0, 0, SRCCOPY);
+
+            SelectObject(hdc_mem, old_bmp);
+            DeleteDC(hdc_mem);
         } else {
-            render_folder_list(hdc, app);
+            render_empty_folder_notice(hdc, app, cur_folder.name);
         }
-    } catch(...) {
-        EndPaint(hwnd, &paint);
-        throw;
+    } else {
+        paint_ok = render_folder_list(hdc, app);
     }
 
     EndPaint(hwnd, &paint);
+    return paint_ok;
 }
 
-auto get_app_state(HWND hwnd) -> app_state & {
+[[nodiscard]] auto get_app_state(HWND hwnd) noexcept -> app_state * {
     auto *app = std::bit_cast<app_state *>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if(app == nullptr) {
-        throw std::runtime_error("Window userdata (app_state*) is null.");
+        show_error_dialog(L"Window userdata (app_state*) is null.");
     }
-    return *app;
+    return app;
 }
 
 auto CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM w_param, LPARAM l_param) noexcept -> LRESULT {
-    try {
-        if(msg == WM_NCCREATE) {
-            auto *create_struct = std::bit_cast<CREATESTRUCTW *>(l_param);
-            if(create_struct == nullptr || create_struct->lpCreateParams == nullptr) {
-                throw std::runtime_error("WM_NCCREATE received null create params.");
-            }
-            const auto user_data = std::bit_cast<LONG_PTR>(create_struct->lpCreateParams);
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, user_data);
-            return DefWindowProcW(hwnd, msg, w_param, l_param);
+    if(msg == WM_NCCREATE) {
+        auto *create_struct = std::bit_cast<CREATESTRUCTW *>(l_param);
+        if(create_struct == nullptr || create_struct->lpCreateParams == nullptr) {
+            show_error_dialog(L"WM_NCCREATE received null create params.");
+            PostQuitMessage(EXIT_FAILURE);
+            return FALSE;
         }
-
-        switch(msg) {
-        case WM_HOTKEY:
-            handle_hotkey(hwnd, get_app_state(hwnd), w_param);
-            return 0;
-
-        case WM_KEYDOWN:
-            handle_keydown(hwnd, get_app_state(hwnd), w_param);
-            return 0;
-
-        case WM_ERASEBKGND:
-            return 1; // Double-buffered / BitBlt prevents flicker
-
-        case WM_PAINT:
-            handle_paint(hwnd, get_app_state(hwnd));
-            return 0;
-
-        case WM_DESTROY:
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
-            PostQuitMessage(0);
-            return 0;
-
-        default:
-            break;
-        }
+        const auto user_data = std::bit_cast<LONG_PTR>(create_struct->lpCreateParams);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, user_data);
         return DefWindowProcW(hwnd, msg, w_param, l_param);
-    } catch(const std::exception &ex) {
-        show_error_dialog(ex.what());
-        PostQuitMessage(EXIT_FAILURE);
-        return 0;
-    } catch(...) {
-        show_error_dialog("Unknown fatal exception inside window procedure.");
-        PostQuitMessage(EXIT_FAILURE);
+    }
+
+    switch(msg) {
+    case WM_HOTKEY: {
+        auto *app = get_app_state(hwnd);
+        if(app == nullptr || !handle_hotkey(hwnd, *app, w_param)) {
+            PostQuitMessage(EXIT_FAILURE);
+        }
         return 0;
     }
+
+    case WM_KEYDOWN: {
+        auto *app = get_app_state(hwnd);
+        if(app == nullptr || !handle_keydown(hwnd, *app, w_param)) {
+            PostQuitMessage(EXIT_FAILURE);
+        }
+        return 0;
+    }
+
+    case WM_ERASEBKGND:
+        return 1; // Double-buffered / BitBlt prevents flicker
+
+    case WM_PAINT: {
+        auto *app = get_app_state(hwnd);
+        if(app == nullptr || !handle_paint(hwnd, *app)) {
+            PostQuitMessage(EXIT_FAILURE);
+        }
+        return 0;
+    }
+
+    case WM_DESTROY:
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        PostQuitMessage(0);
+        return 0;
+
+    default:
+        break;
+    }
+    return DefWindowProcW(hwnd, msg, w_param, l_param);
 }
 
 class gdiplus_session {
 public:
     gdiplus_session() {
         const Gdiplus::GdiplusStartupInput gdi_input;
-        const auto status = Gdiplus::GdiplusStartup(&token_, &gdi_input, nullptr);
-        if(status != Gdiplus::Ok) {
-            throw std::runtime_error("GdiplusStartup failed with status " + std::to_string(static_cast<int>(status))
-                                     + ".");
-        }
+        status_ = Gdiplus::GdiplusStartup(&token_, &gdi_input, nullptr);
     }
 
     ~gdiplus_session() {
-        if(token_ != 0) {
+        if(status_ == Gdiplus::Ok && token_ != 0) {
             Gdiplus::GdiplusShutdown(token_);
         }
     }
@@ -865,43 +896,104 @@ public:
     gdiplus_session(gdiplus_session &&) = delete;
     auto operator=(gdiplus_session &&) -> gdiplus_session & = delete;
 
+    [[nodiscard]] auto status() const noexcept -> Gdiplus::Status {
+        return status_;
+    }
+
 private:
     ULONG_PTR token_ = 0;
+    Gdiplus::Status status_ = Gdiplus::GenericError;
 };
+
+[[nodiscard]] auto register_hotkeys(HWND hwnd) -> bool {
+    return std::ranges::all_of(k_hotkeys, [hwnd](const auto &binding) -> bool {
+        if(RegisterHotKey(hwnd, static_cast<int>(binding.id), binding.mod, binding.vk) == FALSE) {
+            const DWORD err_code = GetLastError();
+            DestroyWindow(hwnd);
+            report_win32_error(L"RegisterHotKey (ID " + std::to_wstring(static_cast<int>(binding.id)) + L")", err_code);
+            return false;
+        }
+        return true;
+    });
+}
+
+void unregister_hotkeys(HWND hwnd) noexcept {
+    for(const auto &[hotkey, mod, vk]: k_hotkeys) {
+        UnregisterHotKey(hwnd, static_cast<int>(hotkey));
+    }
+}
+
+[[nodiscard]] auto run_message_loop(HWND hwnd) -> int {
+    MSG msg{};
+    while(true) {
+        const BOOL get_result = GetMessageW(&msg, nullptr, 0, 0);
+        if(get_result < 0) {
+            const DWORD err_code = GetLastError();
+            unregister_hotkeys(hwnd);
+            DestroyWindow(hwnd);
+            report_win32_error(L"GetMessageW", err_code);
+            return EXIT_FAILURE;
+        }
+        if(get_result == 0) {
+            break;
+        }
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+    unregister_hotkeys(hwnd);
+    return static_cast<int>(msg.wParam);
+}
 
 auto run_app() -> int {
     auto *const h_instance = GetModuleHandleW(nullptr);
     if(h_instance == nullptr) {
-        throw std::runtime_error(format_win32_error("GetModuleHandleW(nullptr)"));
+        report_win32_error(L"GetModuleHandleW(nullptr)");
+        return EXIT_FAILURE;
     }
 
     // 1. Enable Per-Monitor V2 DPI Awareness for pixel-perfect scaling
     if(SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) == FALSE) {
-        throw std::runtime_error(format_win32_error("SetProcessDpiAwarenessContext"));
+        report_win32_error(L"SetProcessDpiAwarenessContext");
+        return EXIT_FAILURE;
     }
 
     // 2. Ensure the "images" directory exists right next to the .exe
-    const auto images_dir = join_path(get_exe_directory(), k_images_dir_name);
+    std::wstring exe_dir;
+    if(!get_exe_directory(exe_dir)) {
+        return EXIT_FAILURE;
+    }
+    const auto images_dir = join_path(exe_dir, k_images_dir_name);
     if(CreateDirectoryW(images_dir.c_str(), nullptr) == FALSE) {
         const DWORD err_code = GetLastError();
         if(err_code != ERROR_ALREADY_EXISTS) {
-            throw std::runtime_error(
-                format_win32_error("CreateDirectoryW for '" + to_utf8(images_dir) + "'", err_code));
+            report_win32_error(L"CreateDirectoryW for '" + images_dir + L"'", err_code);
+            return EXIT_FAILURE;
         }
     }
 
     // 3. Start GDI+ (RAII ensures shutdown happens after app_state is destroyed)
     const gdiplus_session gdi_session;
+    if(gdi_session.status() != Gdiplus::Ok) {
+        const std::wstring msg =
+            L"GdiplusStartup failed with status " + std::to_wstring(static_cast<int>(gdi_session.status())) + L".";
+        show_error_dialog(msg.c_str());
+        return EXIT_FAILURE;
+    }
 
     // 4. Query display monitor (pick 2nd monitor if available, otherwise primary)
-    const auto monitors = get_all_monitor_rects();
+    std::vector<RECT> monitors;
+    if(!get_all_monitor_rects(monitors)) {
+        return EXIT_FAILURE;
+    }
     const std::size_t target_index = (monitors.size() > 1) ? 1U : 0U;
     const auto mon_rect = monitors[target_index];
     const int mon_width = mon_rect.right - mon_rect.left;
     const int mon_height = mon_rect.bottom - mon_rect.top;
     if(mon_width <= 0 || mon_height <= 0) {
-        throw std::runtime_error("Invalid monitor dimensions detected: " + std::to_string(mon_width) + "x"
-                                 + std::to_string(mon_height) + ".");
+        const std::wstring msg = L"Invalid monitor dimensions detected: " + std::to_wstring(mon_width) + L"x"
+                                 + std::to_wstring(mon_height) + L".";
+        show_error_dialog(msg.c_str());
+        return EXIT_FAILURE;
     }
 
     app_state app{
@@ -916,12 +1008,15 @@ auto run_app() -> int {
     };
 
     // 5. Discover strategy folders inside images/
-    discover_folders(app);
+    if(!discover_folders(app)) {
+        return EXIT_FAILURE;
+    }
 
     // 6. Create borderless fullscreen window
     auto *cursor = LoadCursor(nullptr, IDC_ARROW);
     if(cursor == nullptr) {
-        throw std::runtime_error(format_win32_error("LoadCursor(IDC_ARROW)"));
+        report_win32_error(L"LoadCursor(IDC_ARROW)");
+        return EXIT_FAILURE;
     }
 
     WNDCLASSEXW wnd_class{};
@@ -931,7 +1026,8 @@ auto run_app() -> int {
     wnd_class.hCursor = cursor;
     wnd_class.lpszClassName = k_window_class_name;
     if(RegisterClassExW(&wnd_class) == 0) {
-        throw std::runtime_error(format_win32_error("RegisterClassExW"));
+        report_win32_error(L"RegisterClassExW");
+        return EXIT_FAILURE;
     }
 
     auto *hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
@@ -948,55 +1044,19 @@ auto run_app() -> int {
                                  &app);
 
     if(hwnd == nullptr) {
-        throw std::runtime_error(format_win32_error("CreateWindowExW"));
+        report_win32_error(L"CreateWindowExW");
+        return EXIT_FAILURE;
     }
 
-    // 7. Register Global Hotkeys
-    for(const auto &[hotkey, mod, vk]: k_hotkeys) {
-        if(RegisterHotKey(hwnd, static_cast<int>(hotkey), mod, vk) == FALSE) {
-            const DWORD err_code = GetLastError();
-            DestroyWindow(hwnd);
-            throw std::runtime_error(
-                format_win32_error("RegisterHotKey (ID " + std::to_string(static_cast<int>(hotkey)) + ")", err_code));
-        }
+    // 7. Register Global Hotkeys & run event loop
+    if(!register_hotkeys(hwnd)) {
+        return EXIT_FAILURE;
     }
-
-    // 8. Event loop
-    MSG msg{};
-    while(true) {
-        const BOOL get_result = GetMessageW(&msg, nullptr, 0, 0);
-        if(get_result < 0) {
-            const DWORD err_code = GetLastError();
-            for(const auto &[hotkey, mod, vk]: k_hotkeys) {
-                UnregisterHotKey(hwnd, static_cast<int>(hotkey));
-            }
-            DestroyWindow(hwnd);
-            throw std::runtime_error(format_win32_error("GetMessageW", err_code));
-        }
-        if(get_result == 0) {
-            break;
-        }
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
-    }
-
-    // 9. Cleanup
-    for(const auto &[hotkey, mod, vk]: k_hotkeys) {
-        UnregisterHotKey(hwnd, static_cast<int>(hotkey));
-    }
-    return static_cast<int>(msg.wParam);
+    return run_message_loop(hwnd);
 }
 
 } // namespace
 
 auto main() -> int {
-    try {
-        return run_app();
-    } catch(const std::exception &ex) {
-        show_error_dialog(ex.what());
-        return EXIT_FAILURE;
-    } catch(...) {
-        show_error_dialog("Unknown fatal error occurred in RaidViewer.");
-        return EXIT_FAILURE;
-    }
+    return run_app();
 }
