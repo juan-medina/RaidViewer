@@ -100,8 +100,10 @@ constexpr std::string_view k_default_ini_content =
     "\r\n"
     "; Monitor number (1 = primary, 2 = first secondary, etc.).\r\n"
     "; If invalid or disconnected, falls back to the first secondary monitor (or primary if only one exists).\r\n"
+    "; Mode: Fullscreen (borderless fullscreen) or Window (resizable window, defaults to 3/4 of monitor size).\r\n"
     "[Display]\r\n"
     "Monitor = 2\r\n"
+    "Mode    = Fullscreen\r\n"
     "\r\n"
     "; Each action accepts one or more key combinations separated by commas.\r\n"
     "; Modifiers: Control (or Ctrl), Alt, Shift, Win (combine with '+', e.g. Control+Alt+Q)\r\n"
@@ -186,6 +188,11 @@ private:
 enum class view_mode : std::uint8_t {
     folder_list,
     image_viewer,
+};
+
+enum class display_mode : std::uint8_t {
+    fullscreen = 0,
+    window = 1,
 };
 
 struct strat_folder {
@@ -412,6 +419,9 @@ void report_win32_error(std::wstring_view action, DWORD error_code = GetLastErro
 // --- Application State ---
 struct app_state {
     view_mode mode = view_mode::folder_list;
+    display_mode win_mode = display_mode::fullscreen;
+    bool in_size_move = false;
+    bool is_resizing = false;
     std::vector<strat_folder> folders;
     int selected_folder_index = 0;
     int current_slide_index = 0;
@@ -691,6 +701,23 @@ read_ini_value(const wchar_t *section, const wchar_t *key, const wchar_t *defaul
     return (monitor_count > 1) ? 1U : 0U;
 }
 
+[[nodiscard]] auto parse_display_mode(std::wstring_view raw_mode, display_mode &out_mode) -> bool {
+    const auto token = to_upper_ascii(trim_whitespace(raw_mode));
+    if(token.empty() || token == L"FULLSCREEN") {
+        out_mode = display_mode::fullscreen;
+        return true;
+    }
+    if(token == L"WINDOW" || token == L"WINDOWED") {
+        out_mode = display_mode::window;
+        return true;
+    }
+    const std::wstring msg = L"Invalid display mode '" + std::wstring(trim_whitespace(raw_mode))
+                             + L"' in [Display] Mode (" + std::wstring(k_config_file_name)
+                             + L"). Expected Fullscreen or Window.";
+    show_error_dialog(msg.c_str());
+    return false;
+}
+
 [[nodiscard]] auto load_config(const std::wstring &config_path, app_state &app, int &out_monitor_number) -> bool {
     if(!ensure_default_config_file(config_path)) {
         return false;
@@ -699,6 +726,11 @@ read_ini_value(const wchar_t *section, const wchar_t *key, const wchar_t *defaul
     const auto monitor_str = read_ini_value(L"Display", L"Monitor", L"2", config_path);
     int parsed_monitor = 0;
     out_monitor_number = parse_positive_int(monitor_str, parsed_monitor) ? parsed_monitor : 0;
+
+    const auto mode_str = read_ini_value(L"Display", L"Mode", L"Fullscreen", config_path);
+    if(!parse_display_mode(mode_str, app.win_mode)) {
+        return false;
+    }
 
     app.global_hotkeys.clear();
     app.window_keys.clear();
@@ -1140,6 +1172,86 @@ void render_empty_folder_notice(HDC hdc, const app_state &app, const std::wstrin
     DeleteObject(font);
 }
 
+[[nodiscard]] auto render_resizing_notice(HDC hdc, const app_state &app) -> bool {
+    auto *hdc_mem = CreateCompatibleDC(hdc);
+    if(hdc_mem == nullptr) {
+        report_win32_error(L"CreateCompatibleDC in render_resizing_notice");
+        return false;
+    }
+    auto *hbm_mem = CreateCompatibleBitmap(hdc, app.mon_width, app.mon_height);
+    if(hbm_mem == nullptr) {
+        const DWORD err_code = GetLastError();
+        DeleteDC(hdc_mem);
+        report_win32_error(L"CreateCompatibleBitmap in render_resizing_notice", err_code);
+        return false;
+    }
+    auto *old_bmp = SelectObject(hdc_mem, hbm_mem);
+
+    RECT full_rect{0, 0, app.mon_width, app.mon_height};
+    auto *bg_brush = CreateSolidBrush(RGB(14, 17, 23));
+    FillRect(hdc_mem, &full_rect, bg_brush);
+    DeleteObject(bg_brush);
+
+    SetBkMode(hdc_mem, TRANSPARENT);
+    SetTextColor(hdc_mem, RGB(180, 180, 180));
+
+    const int dpi_y = GetDeviceCaps(hdc_mem, LOGPIXELSY);
+    const int pt20_height = -MulDiv(20, dpi_y, 72);
+    auto *font = CreateFontW(pt20_height,
+                             0,
+                             0,
+                             0,
+                             FW_SEMIBOLD,
+                             FALSE,
+                             FALSE,
+                             FALSE,
+                             DEFAULT_CHARSET,
+                             OUT_DEFAULT_PRECIS,
+                             CLIP_DEFAULT_PRECIS,
+                             CLEARTYPE_QUALITY,
+                             DEFAULT_PITCH | FF_SWISS,
+                             L"Segoe UI");
+    auto *old_font = SelectObject(hdc_mem, font);
+
+    DrawTextW(hdc_mem, L"Resizing window...", -1, &full_rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+
+    BitBlt(hdc, 0, 0, app.mon_width, app.mon_height, hdc_mem, 0, 0, SRCCOPY);
+
+    SelectObject(hdc_mem, old_font);
+    DeleteObject(font);
+    SelectObject(hdc_mem, old_bmp);
+    DeleteObject(hbm_mem);
+    DeleteDC(hdc_mem);
+    return true;
+}
+
+void invalidate_loaded_slides(app_state &app) noexcept {
+    for(auto &folder: app.folders) {
+        folder.slides.clear();
+        folder.loaded = false;
+    }
+}
+
+[[nodiscard]] auto apply_client_resize(HWND hwnd, app_state &app, int new_w, int new_h) -> bool {
+    if(new_w <= 0 || new_h <= 0) {
+        return true;
+    }
+    app.mon_width = new_w;
+    app.mon_height = new_h;
+    invalidate_loaded_slides(app);
+    ensure_visible(app);
+
+    if(app.mode == view_mode::image_viewer && !app.folders.empty()) {
+        auto &folder = app.folders[app.selected_folder_index];
+        if(!load_folder_slides(folder, app.mon_width, app.mon_height)) {
+            return false;
+        }
+    }
+
+    InvalidateRect(hwnd, nullptr, FALSE);
+    return true;
+}
+
 [[nodiscard]] auto execute_action(HWND hwnd, app_state &app, action_id action) -> bool {
     switch(action) {
     case action_id::close:
@@ -1217,7 +1329,9 @@ void render_empty_folder_notice(HDC hdc, const app_state &app, const std::wstrin
     }
 
     bool paint_ok = true;
-    if(app.mode == view_mode::image_viewer && !app.folders.empty()) {
+    if(app.is_resizing) {
+        paint_ok = render_resizing_notice(hdc, app);
+    } else if(app.mode == view_mode::image_viewer && !app.folders.empty()) {
         const auto &cur_folder = app.folders[app.selected_folder_index];
         if(!cur_folder.slides.empty()) {
             auto *hdc_mem = CreateCompatibleDC(hdc);
@@ -1289,6 +1403,72 @@ auto CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM w_param, LPARAM l_param) noex
             return 0;
         }
         break;
+    }
+
+    case WM_GETMINMAXINFO: {
+        auto *mmi = std::bit_cast<MINMAXINFO *>(l_param);
+        if(mmi != nullptr) {
+            mmi->ptMinTrackSize.x = 480;
+            mmi->ptMinTrackSize.y = 320;
+        }
+        return 0;
+    }
+
+    case WM_ENTERSIZEMOVE: {
+        auto *app = get_app_state(hwnd);
+        if(app == nullptr) {
+            PostQuitMessage(EXIT_FAILURE);
+            return 0;
+        }
+        app->in_size_move = true;
+        return 0;
+    }
+
+    case WM_SIZE: {
+        if(w_param == SIZE_MINIMIZED) {
+            return 0;
+        }
+        auto *app = get_app_state(hwnd);
+        if(app == nullptr) {
+            PostQuitMessage(EXIT_FAILURE);
+            return 0;
+        }
+        const int new_w = static_cast<int>(LOWORD(l_param));
+        const int new_h = static_cast<int>(HIWORD(l_param));
+        if(new_w <= 0 || new_h <= 0) {
+            return 0;
+        }
+        if(app->in_size_move) {
+            if(new_w != app->mon_width || new_h != app->mon_height || app->is_resizing) {
+                app->is_resizing = true;
+                app->mon_width = new_w;
+                app->mon_height = new_h;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+        if(new_w != app->mon_width || new_h != app->mon_height) {
+            if(!apply_client_resize(hwnd, *app, new_w, new_h)) {
+                PostQuitMessage(EXIT_FAILURE);
+            }
+        }
+        return 0;
+    }
+
+    case WM_EXITSIZEMOVE: {
+        auto *app = get_app_state(hwnd);
+        if(app == nullptr) {
+            PostQuitMessage(EXIT_FAILURE);
+            return 0;
+        }
+        app->in_size_move = false;
+        if(app->is_resizing) {
+            app->is_resizing = false;
+            if(!apply_client_resize(hwnd, *app, app->mon_width, app->mon_height)) {
+                PostQuitMessage(EXIT_FAILURE);
+            }
+        }
+        return 0;
     }
 
     case WM_ERASEBKGND:
@@ -1417,6 +1597,9 @@ auto run_app() -> int {
 
     app_state app{
         .mode = view_mode::folder_list,
+        .win_mode = display_mode::fullscreen,
+        .in_size_move = false,
+        .is_resizing = false,
         .folders = {},
         .selected_folder_index = 0,
         .current_slide_index = 0,
@@ -1452,15 +1635,32 @@ auto run_app() -> int {
         show_error_dialog(msg.c_str());
         return EXIT_FAILURE;
     }
-    app.mon_width = mon_width;
-    app.mon_height = mon_height;
+
+    const bool is_windowed = (app.win_mode == display_mode::window);
+    const DWORD ex_style = is_windowed ? WS_EX_TOPMOST : (WS_EX_TOPMOST | WS_EX_TOOLWINDOW);
+    const DWORD win_style = is_windowed ? (WS_OVERLAPPEDWINDOW | WS_VISIBLE) : (WS_POPUP | WS_VISIBLE);
+
+    int win_x = mon_rect.left;
+    int win_y = mon_rect.top;
+    int win_w = mon_width;
+    int win_h = mon_height;
+
+    if(is_windowed) {
+        win_w = (mon_width * 3) / 4;
+        win_h = (mon_height * 3) / 4;
+        win_x = mon_rect.left + ((mon_width - win_w) / 2);
+        win_y = mon_rect.top + ((mon_height - win_h) / 2);
+    }
+
+    app.mon_width = win_w;
+    app.mon_height = win_h;
 
     // 6. Discover strategy folders inside images/
     if(!discover_folders(app)) {
         return EXIT_FAILURE;
     }
 
-    // 7. Create borderless fullscreen window
+    // 7. Create window (borderless fullscreen or resizable 3/4 window)
     auto *cursor = LoadCursor(nullptr, IDC_ARROW);
     if(cursor == nullptr) {
         report_win32_error(L"LoadCursor(IDC_ARROW)");
@@ -1478,14 +1678,14 @@ auto run_app() -> int {
         return EXIT_FAILURE;
     }
 
-    auto *hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+    auto *hwnd = CreateWindowExW(ex_style,
                                  wnd_class.lpszClassName,
                                  k_window_title,
-                                 WS_POPUP | WS_VISIBLE,
-                                 mon_rect.left,
-                                 mon_rect.top,
-                                 app.mon_width,
-                                 app.mon_height,
+                                 win_style,
+                                 win_x,
+                                 win_y,
+                                 win_w,
+                                 win_h,
                                  nullptr,
                                  nullptr,
                                  h_instance,
