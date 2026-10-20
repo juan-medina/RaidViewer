@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-478CBF.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 [![Conduct](https://img.shields.io/badge/Conduct-Covenat%202.0-478CBF.svg?style=for-the-badge)](https://www.contributor-covenant.org/version/2/0/code_of_conduct/)
 [![Made with C++20](https://img.shields.io/badge/C%2B%2B-20-478CBF?style=for-the-badge&logo=c%2B%2B&logoColor=white)](https://isocpp.org/)
+[![CI](https://img.shields.io/github/actions/workflow/status/juan-medina/RaidViewer/ci.yml?branch=main&style=for-the-badge&logo=github&label=CI)](https://github.com/juan-medina/RaidViewer/actions/workflows/ci.yml)
 
 ---
 
