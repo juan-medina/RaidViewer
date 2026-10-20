@@ -16,7 +16,7 @@ Built in pure C++20 using native Win32 and GDI (`~46 KB` executable, zero extern
 ## Features
 
 - **Zero Gameplay Impact:** Pure GDI `BitBlt` rendering and an event-driven message loop—no GPU context, no background timers, and no frame-pacing interference.
-- **No Alt-Tabbing:** Global hotkeys (`F13`–`F16`, ideal for macro keys, mouse buttons, or a Stream Deck) work while your game stays in focus.
+- **No Alt-Tabbing:** Global hotkeys (`F13`–`F16` and `Control+Alt+Q` by default, customizable via `RaidViewer.ini`) work while your game stays in focus.
 - **Second-Monitor Native:** Automatically opens borderless fullscreen on your secondary monitor (or primary if only one display is connected) with Per-Monitor V2 DPI scaling.
 - **Tiny & Portable:** Standalone `~46 KB` executable using only standard Windows system libraries.
 
@@ -27,15 +27,41 @@ Built in pure C++20 using native Win32 and GDI (`~46 KB` executable, zero extern
 1. Place your raid strategy subfolders inside the `images/` directory next to `RaidViewer.exe` (e.g., `images/M12S - Phase 1/`).
 2. Add your slide images (`.png`, `.jpg`, `.jpeg`, `.bmp`) inside each subfolder—files are ordered naturally (`1.png`, `2.png`, `10.png`).
 3. Launch `RaidViewer.exe` and control it in either of two ways:
-   - **While playing (no focus needed):** Use `F13`–`F16` (bind them to macro keys, mouse buttons, or a Stream Deck).
+   - **While playing (no focus needed):** Use `F13`–`F16` or `Control+Alt+Q` (bind `F13`–`F16` to macro keys, mouse buttons, or a Stream Deck, or customize them in `RaidViewer.ini`).
    - **When RaidViewer is focused:** Use standard keyboard keys (`Arrows`, `Enter`, `Space`, `Esc`).
 
-| Action | Anywhere (No Focus Needed) | When Window Is Focused |
+| Action | Anywhere (Global Hotkeys) | When Window Is Focused |
 | :--- | :--- | :--- |
 | **Previous Strategy / Slide** | `F13` | `Up` / `Left` |
 | **Next Strategy / Slide** | `F14` | `Down` / `Right` |
 | **Open Strategy** | `F15` | `Enter` / `Space` |
-| **Back to List / Close App** | `F16` | `Esc` |
+| **Back to List / Close App** | `F16` / `Control+Alt+Q` | `Esc` |
+
+---
+
+## Configuration (`RaidViewer.ini`)
+
+On first launch, `RaidViewer.exe` automatically generates `RaidViewer.ini` in the same directory if it does not already exist:
+
+```ini
+; Global hotkeys work at all times, even while playing your game.
+[GlobalHotkeys]
+Previous  = F13
+Next      = F14
+Selection = F15
+Close     = F16, Control+Alt+Q
+
+; Window keys only work when the RaidViewer window itself is focused.
+[WindowKeys]
+Previous  = Up, Left
+Next      = Down, Right
+Selection = Enter, Space
+Close     = Esc
+```
+
+- **Multiple bindings:** Separate multiple key combinations for the same action with commas (e.g., `F16, Control+Alt+Q`).
+- **Modifiers:** `Control` (or `Ctrl`), `Alt`, `Shift`, `Win` — combine with `+` (e.g., `Ctrl+Shift+Right`).
+- **Supported keys:** `F1`–`F24`, `A`–`Z`, `0`–`9`, `NumPad0`–`NumPad9`, `Up`, `Down`, `Left`, `Right`, `PageUp`, `PageDown`, `Home`, `End`, `Insert`, `Delete`, `Space`, `Enter`, `Esc`, `Tab`, `Backspace`, `Plus`, `Minus`, `Comma`, `Period`, `Multiply`, `Add`, `Subtract`, `Decimal`, `Divide`, `Pause`.
 
 ---
 
