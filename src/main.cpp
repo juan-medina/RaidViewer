@@ -15,17 +15,13 @@
 #include <cstdlib>
 #include <cwctype>
 #include <exception>
-#include <filesystem>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <type_traits>
 #include <utility>
 #include <vector>
-
-namespace fs = std::filesystem;
 
 namespace {
 
@@ -62,6 +58,33 @@ using unique_bitmap = std::unique_ptr<std::remove_pointer_t<HBITMAP>, decltype([
                                           }
                                       })>;
 
+class find_file_handle {
+public:
+    explicit find_file_handle(HANDLE handle) noexcept: handle_(handle) {}
+
+    ~find_file_handle() {
+        if(handle_ != INVALID_HANDLE_VALUE && handle_ != nullptr) {
+            FindClose(handle_);
+        }
+    }
+
+    find_file_handle(const find_file_handle &) = delete;
+    auto operator=(const find_file_handle &) -> find_file_handle & = delete;
+    find_file_handle(find_file_handle &&) = delete;
+    auto operator=(find_file_handle &&) -> find_file_handle & = delete;
+
+    [[nodiscard]] auto valid() const noexcept -> bool {
+        return handle_ != INVALID_HANDLE_VALUE && handle_ != nullptr;
+    }
+
+    [[nodiscard]] auto get() const noexcept -> HANDLE {
+        return handle_;
+    }
+
+private:
+    HANDLE handle_ = INVALID_HANDLE_VALUE;
+};
+
 enum class view_mode : std::uint8_t {
     folder_list,
     image_viewer,
@@ -69,7 +92,7 @@ enum class view_mode : std::uint8_t {
 
 struct strat_folder {
     std::wstring name;
-    fs::path path;
+    std::wstring path;
     std::vector<unique_bitmap> slides;
     bool loaded = false;
 };
@@ -97,28 +120,47 @@ void show_error_dialog(const char *message) noexcept {
     MessageBoxA(nullptr, message, "RaidViewer Fatal Error", MB_OK | MB_ICONERROR | MB_TOPMOST);
 }
 
+[[nodiscard]] auto join_path(std::wstring_view base, std::wstring_view child) -> std::wstring {
+    if(base.empty()) {
+        return std::wstring(child);
+    }
+    if(base.back() == L'\\' || base.back() == L'/') {
+        return std::wstring(base) + std::wstring(child);
+    }
+    return std::wstring(base) + L"\\" + std::wstring(child);
+}
+
+[[nodiscard]] auto is_dot_entry(std::wstring_view name) noexcept -> bool {
+    return name == L"." || name == L"..";
+}
+
 // Get the directory where RaidViewer.exe lives
-auto get_exe_directory() -> fs::path {
+auto get_exe_directory() -> std::wstring {
     std::array<wchar_t, MAX_PATH> buffer{};
     const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), MAX_PATH);
     if(length == 0 || length >= MAX_PATH) {
         throw std::runtime_error(format_win32_error("GetModuleFileNameW"));
     }
-    const auto exe_dir = fs::path(buffer.data()).parent_path();
-    if(exe_dir.empty()) {
+    const std::wstring_view full_path(buffer.data(), length);
+    const auto last_slash = full_path.find_last_of(L"\\/");
+    if(last_slash == std::wstring_view::npos) {
         throw std::runtime_error("Executable parent directory is empty.");
     }
-    return exe_dir;
+    return std::wstring(full_path.substr(0, last_slash));
 }
 
-auto is_image_file(const fs::path &path) -> bool {
+[[nodiscard]] auto is_image_file(std::wstring_view filename) -> bool {
     static constexpr std::array k_extensions{
         std::wstring_view{L".png"},
         std::wstring_view{L".bmp"},
         std::wstring_view{L".jpg"},
         std::wstring_view{L".jpeg"},
     };
-    auto ext = path.extension().wstring();
+    const auto dot_pos = filename.find_last_of(L'.');
+    if(dot_pos == std::wstring_view::npos) {
+        return false;
+    }
+    std::wstring ext(filename.substr(dot_pos));
     for(auto &chr: ext) {
         chr = static_cast<wchar_t>(std::towlower(chr));
     }
@@ -127,7 +169,7 @@ auto is_image_file(const fs::path &path) -> bool {
 
 // Loads PNG/BMP/JPG, scales to screen size conserving aspect ratio, fills
 // letterbox with black
-auto bake_slide_to_screen_bitmap(const fs::path &file_path, int screen_w, int screen_h) -> unique_bitmap {
+auto bake_slide_to_screen_bitmap(const std::wstring &file_path, int screen_w, int screen_h) -> unique_bitmap {
     if(screen_w <= 0 || screen_h <= 0) {
         throw std::runtime_error("Invalid screen dimensions for slide baking.");
     }
@@ -135,11 +177,11 @@ auto bake_slide_to_screen_bitmap(const fs::path &file_path, int screen_w, int sc
     Gdiplus::Bitmap src(file_path.c_str());
     const auto status = src.GetLastStatus();
     if(status != Gdiplus::Ok) {
-        throw std::runtime_error("GDI+ failed to load image '" + to_utf8(file_path.wstring()) + "' (Gdiplus::Status "
+        throw std::runtime_error("GDI+ failed to load image '" + to_utf8(file_path) + "' (Gdiplus::Status "
                                  + std::to_string(static_cast<int>(status)) + ").");
     }
     if(src.GetWidth() == 0 || src.GetHeight() == 0) {
-        throw std::runtime_error("Image has zero width or height: '" + to_utf8(file_path.wstring()) + "'.");
+        throw std::runtime_error("Image has zero width or height: '" + to_utf8(file_path) + "'.");
     }
 
     auto *hdc_screen = GetDC(nullptr);
@@ -203,7 +245,7 @@ auto bake_slide_to_screen_bitmap(const fs::path &file_path, int screen_w, int sc
     ReleaseDC(nullptr, hdc_screen);
 
     if(draw_status != Gdiplus::Ok) {
-        throw std::runtime_error("Gdiplus::Graphics::DrawImage failed for '" + to_utf8(file_path.wstring())
+        throw std::runtime_error("Gdiplus::Graphics::DrawImage failed for '" + to_utf8(file_path)
                                  + "' (Gdiplus::Status " + std::to_string(static_cast<int>(draw_status)) + ").");
     }
 
@@ -212,35 +254,48 @@ auto bake_slide_to_screen_bitmap(const fs::path &file_path, int screen_w, int sc
 
 void load_folder_slides(strat_folder &folder, int screen_w, int screen_h) {
     folder.slides.clear();
-    std::error_code err;
-    std::vector<fs::path> image_files;
-    const fs::directory_iterator dir_it(folder.path, err);
-    if(err) {
-        throw std::runtime_error("Failed to read strategy folder '" + to_utf8(folder.path.wstring())
-                                 + "': " + err.message());
+    std::vector<std::wstring> image_names;
+
+    WIN32_FIND_DATAW find_data{};
+    const auto search_pattern = join_path(folder.path, L"*");
+    const find_file_handle find_handle(FindFirstFileW(search_pattern.c_str(), &find_data));
+    if(!find_handle.valid()) {
+        const DWORD err_code = GetLastError();
+        if(err_code != ERROR_FILE_NOT_FOUND) {
+            throw std::runtime_error(format_win32_error("FindFirstFileW in '" + to_utf8(folder.path) + "'", err_code));
+        }
+        folder.loaded = true;
+        return;
     }
 
-    for(const auto &entry: dir_it) {
-        const bool is_reg = entry.is_regular_file(err);
-        if(err) {
-            throw std::runtime_error("Failed to inspect file '" + to_utf8(entry.path().wstring())
-                                     + "': " + err.message());
+    while(true) {
+        const std::wstring_view entry_name(static_cast<const wchar_t *>(find_data.cFileName));
+        if(!is_dot_entry(entry_name)) {
+            const bool is_dir = (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            if(!is_dir && is_image_file(entry_name)) {
+                image_names.emplace_back(entry_name);
+            }
         }
-        if(is_reg && is_image_file(entry.path())) {
-            image_files.push_back(entry.path());
+        if(FindNextFileW(find_handle.get(), &find_data) == FALSE) {
+            break;
         }
     }
 
-    std::ranges::sort(image_files, [](const auto &lhs, const auto &rhs) -> bool {
-        const auto cmp = StrCmpIW(lhs.filename().c_str(), rhs.filename().c_str());
+    const DWORD iter_err = GetLastError();
+    if(iter_err != ERROR_NO_MORE_FILES) {
+        throw std::runtime_error(format_win32_error("FindNextFileW in '" + to_utf8(folder.path) + "'", iter_err));
+    }
+
+    std::ranges::sort(image_names, [](const auto &lhs, const auto &rhs) -> bool {
+        const auto cmp = StrCmpIW(lhs.c_str(), rhs.c_str());
         if(cmp != 0) {
             return cmp < 0;
         }
-        return lhs.filename().native() < rhs.filename().native();
+        return lhs < rhs;
     });
 
-    for(const auto &file: image_files) {
-        folder.slides.push_back(bake_slide_to_screen_bitmap(file, screen_w, screen_h));
+    for(const auto &name: image_names) {
+        folder.slides.push_back(bake_slide_to_screen_bitmap(join_path(folder.path, name), screen_w, screen_h));
     }
     folder.loaded = true;
 }
@@ -254,7 +309,7 @@ struct app_state {
     int scroll_offset = 0;
     int mon_width = 0;
     int mon_height = 0;
-    fs::path images_dir;
+    std::wstring images_dir;
 };
 
 [[nodiscard]] auto get_visible_row_count(const app_state &app) noexcept -> int {
@@ -334,26 +389,42 @@ void handle_close_action(HWND hwnd, app_state &app) noexcept {
 
 void discover_folders(app_state &app) {
     app.folders.clear();
-    std::error_code err;
-    const fs::directory_iterator dir_it(app.images_dir, err);
-    if(err) {
-        throw std::runtime_error("Failed to open images directory '" + to_utf8(app.images_dir.wstring())
-                                 + "': " + err.message());
-    }
+    bool has_loose_images = false;
 
-    for(const auto &entry: dir_it) {
-        const bool is_dir = entry.is_directory(err);
-        if(err) {
-            throw std::runtime_error("Failed to inspect directory entry '" + to_utf8(entry.path().wstring())
-                                     + "': " + err.message());
+    WIN32_FIND_DATAW find_data{};
+    const auto search_pattern = join_path(app.images_dir, L"*");
+    const find_file_handle find_handle(FindFirstFileW(search_pattern.c_str(), &find_data));
+    if(!find_handle.valid()) {
+        const DWORD err_code = GetLastError();
+        if(err_code != ERROR_FILE_NOT_FOUND) {
+            throw std::runtime_error(
+                format_win32_error("FindFirstFileW in '" + to_utf8(app.images_dir) + "'", err_code));
         }
-        if(is_dir) {
-            app.folders.push_back(strat_folder{
-                .name = entry.path().filename().wstring(),
-                .path = entry.path(),
-                .slides = {},
-                .loaded = false,
-            });
+    } else {
+        while(true) {
+            const std::wstring_view entry_name(static_cast<const wchar_t *>(find_data.cFileName));
+            if(!is_dot_entry(entry_name)) {
+                const bool is_dir = (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+                if(is_dir) {
+                    app.folders.push_back(strat_folder{
+                        .name = std::wstring(entry_name),
+                        .path = join_path(app.images_dir, entry_name),
+                        .slides = {},
+                        .loaded = false,
+                    });
+                } else if(!has_loose_images && is_image_file(entry_name)) {
+                    has_loose_images = true;
+                }
+            }
+            if(FindNextFileW(find_handle.get(), &find_data) == FALSE) {
+                break;
+            }
+        }
+
+        const DWORD iter_err = GetLastError();
+        if(iter_err != ERROR_NO_MORE_FILES) {
+            throw std::runtime_error(
+                format_win32_error("FindNextFileW in '" + to_utf8(app.images_dir) + "'", iter_err));
         }
     }
 
@@ -365,32 +436,13 @@ void discover_folders(app_state &app) {
         return lhs.name < rhs.name;
     });
 
-    if(app.folders.empty()) {
-        bool has_loose_images = false;
-        const fs::directory_iterator loose_it(app.images_dir, err);
-        if(err) {
-            throw std::runtime_error("Failed to scan images directory '" + to_utf8(app.images_dir.wstring())
-                                     + "': " + err.message());
-        }
-        for(const auto &entry: loose_it) {
-            const bool is_reg = entry.is_regular_file(err);
-            if(err) {
-                throw std::runtime_error("Failed to inspect file '" + to_utf8(entry.path().wstring())
-                                         + "': " + err.message());
-            }
-            if(is_reg && is_image_file(entry.path())) {
-                has_loose_images = true;
-                break;
-            }
-        }
-        if(has_loose_images) {
-            app.folders.push_back(strat_folder{
-                .name = L"Default (images/)",
-                .path = app.images_dir,
-                .slides = {},
-                .loaded = false,
-            });
-        }
+    if(app.folders.empty() && has_loose_images) {
+        app.folders.push_back(strat_folder{
+            .name = L"Default (images/)",
+            .path = app.images_dir,
+            .slides = {},
+            .loaded = false,
+        });
     }
 
     if(std::cmp_greater_equal(app.selected_folder_index, app.folders.size())) {
@@ -829,12 +881,13 @@ auto run_app() -> int {
     }
 
     // 2. Ensure the "images" directory exists right next to the .exe
-    const auto images_dir = get_exe_directory() / k_images_dir_name;
-    std::error_code err;
-    fs::create_directories(images_dir, err);
-    if(err) {
-        throw std::runtime_error("Failed to create or access images directory '" + to_utf8(images_dir.wstring())
-                                 + "': " + err.message());
+    const auto images_dir = join_path(get_exe_directory(), k_images_dir_name);
+    if(CreateDirectoryW(images_dir.c_str(), nullptr) == FALSE) {
+        const DWORD err_code = GetLastError();
+        if(err_code != ERROR_ALREADY_EXISTS) {
+            throw std::runtime_error(
+                format_win32_error("CreateDirectoryW for '" + to_utf8(images_dir) + "'", err_code));
+        }
     }
 
     // 3. Start GDI+ (RAII ensures shutdown happens after app_state is destroyed)
