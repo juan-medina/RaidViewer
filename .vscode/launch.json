@@ -1,0 +1,23 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug RaidViewer (F5)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/Debug/RaidViewer.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}/build/Debug",
+      "preLaunchTask": "CMake: Build Debug"
+    },
+    {
+      "name": "Run Release RaidViewer",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/Release/RaidViewer.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}/build/Release",
+      "preLaunchTask": "CMake: Build Release"
+    }
+  ]
+}

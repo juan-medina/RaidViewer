@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Juan Medina
+# SPDX-License-Identifier: MIT
+
+build*/
+cmake-build-*/
+.idea/
+.venv/

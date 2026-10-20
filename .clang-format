@@ -1,0 +1,49 @@
+BasedOnStyle: llvm
+---
+Language: Cpp
+Standard: c++20
+SortIncludes: CaseInsensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '"RaidViewer/.*\.hpp"'
+    Priority: 1
+  - Regex: '\<RaidViewer/.*\.hpp\>'
+    Priority: 1
+  - Regex: '<[[:alnum:]_]+>'
+    Priority: 2
+  - Regex: '<[[:alnum:]_./]+>'
+    Priority: 3
+  - Regex: '\.\./.*'
+    Priority: 4
+  - Regex: '.*'
+    Priority: 5
+
+AccessModifierOffset: -4
+AlignEscapedNewlines: DontAlign
+AllowShortBlocksOnASingleLine: Empty
+AllowShortEnumsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AlwaysBreakTemplateDeclarations: Yes
+BinPackArguments: false
+BinPackParameters: false
+BreakBeforeBinaryOperators: NonAssignment
+BreakBeforeTernaryOperators: true
+ColumnLimit: 120
+DerivePointerAlignment: false
+FixNamespaceComments: true
+IndentPPDirectives: AfterHash
+IndentWidth: 4
+KeepEmptyLinesAtTheStartOfBlocks: false
+PointerAlignment: Right
+SpaceAfterCStyleCast: false
+SpaceAfterTemplateKeyword: false
+SpaceAroundPointerQualifiers: After
+SpaceBeforeCaseColon: false
+SpaceBeforeCtorInitializerColon: false
+SpaceBeforeInheritanceColon: false
+SpaceBeforeParens: Never
+SpaceBeforeRangeBasedForLoopColon: false
+TabWidth: 4
+UseTab: Never
