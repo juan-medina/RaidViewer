@@ -75,20 +75,19 @@ auto CALLBACK enum_monitors_proc(HMONITOR h_mon, HDC /*hdc*/, LPRECT /*rect*/, L
     const int mon_height = mon_rect.bottom - mon_rect.top;
 
     window_placement placement{};
+    placement.ex_style = WS_EX_APPWINDOW;
     if(is_windowed) {
         placement.width = (mon_width * 3) / 4;
         placement.height = (mon_height * 3) / 4;
         placement.x = mon_rect.left + ((mon_width - placement.width) / 2);
         placement.y = mon_rect.top + ((mon_height - placement.height) / 2);
         placement.style = WS_OVERLAPPEDWINDOW | WS_VISIBLE;
-        placement.ex_style = WS_EX_TOPMOST;
     } else {
         placement.width = mon_width;
         placement.height = mon_height;
         placement.x = mon_rect.left;
         placement.y = mon_rect.top;
         placement.style = WS_POPUP | WS_VISIBLE;
-        placement.ex_style = WS_EX_TOPMOST | WS_EX_TOOLWINDOW;
     }
     return placement;
 }

@@ -25,7 +25,7 @@ Every design choice serves one constraint: **zero impact on the running game.**
 2. **Pre-Baked Screen Bitmaps on Cold Path (`bake_slide_to_screen_bitmap`):**
    When a strategy folder is opened, GDI+ decodes each image and bicubic-scales it once into a screen-sized, black-letterboxed `HBITMAP`. `WM_PAINT` only performs a `BitBlt(..., SRCCOPY)` from the pre-baked bitmap (or double-buffered folder list) and `WM_ERASEBKGND` returns `1`. Never decode, scale, or allocate images inside `WM_PAINT`.
 3. **Per-Monitor V2 DPI & Monitor Selection:**
-   `SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)` runs before any window or monitor query so bitmaps are baked at exact 1:1 physical pixels. The window targets monitor index `1` (secondary) when available and falls back to `0` (primary), using `WS_POPUP | WS_VISIBLE` and `WS_EX_TOPMOST | WS_EX_TOOLWINDOW`.
+   `SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)` runs before any window or monitor query so bitmaps are baked at exact 1:1 physical pixels. The window targets monitor index `1` (secondary) when available and falls back to `0` (primary), using `WS_POPUP | WS_VISIBLE` and `WS_EX_APPWINDOW` (borderless fullscreen, non-topmost, allowing Alt-Tab switching).
 4. **Natural Sort Order (`StrCmpIW`):**
    Strategy folders and slide images are sorted with `StrCmpIW` (`shlwapi.h`) with a native filename tie-breaker so numbered phases and slides (`Phase 2` vs. `Phase 10`) sort in human-expected order.
 5. **Lazy Slide Baking:**
@@ -57,3 +57,4 @@ clang-tidy -p build src/main.cpp
 1. **Zero Tolerance for Unverified Code:** Never declare a coding task complete without running `clang-format`, `clang-tidy`, and building both `debug` and `release` presets with zero warnings.
 2. **Do Not Modify Code When Asked to Investigate:** If asked to explain, debug, or analyze behavior without a request to fix it, use read-only tools only and stop to report findings.
 3. **Strict Scope & Binary Footprint Discipline:** Do not propose unsolicited features, config files, animations, or abstractions. Any change that significantly increases binary size, memory footprint, or background CPU/GPU activity violates the product thesis.
+4. **Strict Build System Discipline (Use CMake Exclusively):** Never invoke compiler binaries (`cl.exe`, `clang.exe`), vendor batch scripts (`vcvarsall.bat`, `vcvars64.bat`), or custom build workarounds directly. Always build and verify exclusively through CMake presets (`cmake --preset default`, `cmake --build --preset debug`, `cmake --build --preset release`) and CMake build artifacts (`clang-tidy -p build`). Never override or assume the user's configured toolchain.

@@ -332,6 +332,9 @@ auto run_app() -> int {
         return EXIT_FAILURE;
     }
 
+    ShowWindow(hwnd, SW_SHOW);
+    SetForegroundWindow(hwnd);
+
     // 8. Register hotkeys and run loop
     if(!register_hotkeys(hwnd, app.global_hotkeys)) {
         return EXIT_FAILURE;
