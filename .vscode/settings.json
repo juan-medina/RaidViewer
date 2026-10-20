@@ -5,6 +5,7 @@
     "constexpr",
     "cppcoreguidelines",
     "CREATESTRUCTW",
+    "DATAW",
     "deleter",
     "DNOMINMAX",
     "DUNICODE",

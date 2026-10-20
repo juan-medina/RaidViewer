@@ -8,7 +8,7 @@
 
 **RaidViewer** is an ultra-minimal second-monitor raid strategy viewer for Windows.
 
-Built in pure C++20 using native Win32 and GDI (`~80 KB` executable, zero external dependencies), it requires **no OpenGL, Direct3D, or Vulkan**. It sleeps at 0% CPU/GPU usage between inputs and uses global hotkeys so you can switch raid diagrams mid-pull without ever alt-tabbing out of your game.
+Built in pure C++20 using native Win32 and GDI (`~46 KB` executable, zero external dependencies), it requires **no OpenGL, Direct3D, or Vulkan**. It sleeps at 0% CPU/GPU usage between inputs and uses global hotkeys so you can switch raid diagrams mid-pull without ever alt-tabbing out of your game.
 
 ---
 
@@ -17,7 +17,7 @@ Built in pure C++20 using native Win32 and GDI (`~80 KB` executable, zero extern
 - **Zero Gameplay Impact:** Pure GDI `BitBlt` rendering and an event-driven message loop—no GPU context, no background timers, and no frame-pacing interference.
 - **No Alt-Tabbing:** Global hotkeys (`F13`–`F16`, ideal for macro keys, mouse buttons, or a Stream Deck) work while your game stays in focus.
 - **Second-Monitor Native:** Automatically opens borderless fullscreen on your secondary monitor (or primary if only one display is connected) with Per-Monitor V2 DPI scaling.
-- **Tiny & Portable:** Standalone `~80 KB` executable using only standard Windows system libraries.
+- **Tiny & Portable:** Standalone `~46 KB` executable using only standard Windows system libraries.
 
 ---
 

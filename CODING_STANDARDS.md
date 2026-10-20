@@ -33,11 +33,11 @@ This document defines the coding standards, C++20 conventions, and engineering p
 ## 3. Build System & Compiler Strictness
 
 - **Language Standard:** Strict **C++20** (`CMAKE_CXX_STANDARD 20`, `CMAKE_CXX_STANDARD_REQUIRED ON`, `CXX_EXTENSIONS OFF`).
-- **Zero-Warning Policy:** Warnings are treated as errors in all configurations:
-  - **MSVC:** `/W4 /WX /permissive- /utf-8`
-  - **GCC / Clang:** `-Wall -Wextra -pedantic -Werror`
+- **Zero-Warning Policy & Minimal Binary Footprint:** Warnings are treated as errors in all configurations, RTTI and C++ exceptions are disabled, and Release builds optimize for size and strip dead code:
+  - **MSVC:** `/W4 /WX /permissive- /utf-8 /GR- /EHs-c-` (`_HAS_EXCEPTIONS=0`), plus Release `/O1 /Ob1 /Gy /Gw` and linker `/OPT:REF /OPT:ICF`
+  - **GCC / Clang:** `-Wall -Wextra -pedantic -Werror -fno-rtti -fno-exceptions`, plus Release `-Os -ffunction-sections -fdata-sections` and linker `-Wl,--gc-sections`
 - **Compile Commands:** `CMAKE_EXPORT_COMPILE_COMMANDS ON` is enabled by default via `CMakePresets.json` (`Ninja Multi-Config`) so `clangd` and `clang-tidy` always have an up-to-date `build/compile_commands.json`.
-- **Win32 Configuration:** Define `UNICODE`, `_UNICODE`, `WIN32_LEAN_AND_MEAN`, and `NOMINMAX` on targets, and use standard `auto main() -> int` with `/ENTRY:mainCRTStartup`.
+- **Win32 Configuration:** Define `UNICODE`, `_UNICODE`, `WIN32_LEAN_AND_MEAN`, `NOMINMAX`, and `_HAS_EXCEPTIONS=0` on targets, and use standard `auto main() -> int` with `/ENTRY:mainCRTStartup`.
 
 ---
 
@@ -54,7 +54,7 @@ Naming is strictly enforced by [`.clang-tidy`](.clang-tidy) (`readability-identi
 | **Public Struct Members** | `lower_case` (no suffix) | `app.mon_width`, `folder.slides` |
 | **Constants (`constexpr`)** | `lower_case` (`k_` prefix at file scope) | `k_hotkeys`, `k_window_class_name` |
 | **Enums & Enumerators** | `lower_case` (`snake_case`) | `enum class view_mode : std::uint8_t { folder_list }` |
-| **Namespaces & Type Aliases** | `lower_case` (`snake_case`) | `using unique_bitmap = ...;`, `namespace fs = ...;` |
+| **Namespaces & Type Aliases** | `lower_case` (`snake_case`) | `using unique_bitmap = ...;` |
 | **Template Parameters** | `Camel_Snake_Case` | `template<typename Value_Type>` |
 | **Preprocessor Macros** | `UPPER_CASE` | `WIN32_LEAN_AND_MEAN` (avoid custom macros) |
 
@@ -68,15 +68,15 @@ Naming is strictly enforced by [`.clang-tidy`](.clang-tidy) (`readability-identi
   ```
   Functions returning nothing may use `void func(...)` or `auto func(...) -> void`.
 - **Attributes:**
-  - Mark getters, queries, and pure functions `[[nodiscard]]`.
-  - Mark functions that cannot throw `noexcept` (especially state updates, destructors, and `wnd_proc`).
+  - Mark getters, queries, and fallible functions `[[nodiscard]]`.
+  - Mark functions `noexcept` where appropriate (state updates, destructors, and `wnd_proc`).
   - Use `[[likely]]` and `[[unlikely]]` on performance-critical branches when appropriate.
 - **Scoped & Sized Enums:** Always use `enum class` with an explicit underlying integer type (`std::uint8_t`, etc.) when representing IDs, flags, or compact state.
 - **Designated Initializers:** Use C++20 designated initializers when constructing aggregates and structs:
   ```cpp
   app.folders.push_back(strat_folder{
-      .name = entry.path().filename().wstring(),
-      .path = entry.path(),
+      .name = std::wstring(entry_name),
+      .path = join_path(app.images_dir, entry_name),
       .slides = {},
       .loaded = false,
   });
@@ -85,12 +85,12 @@ Naming is strictly enforced by [`.clang-tidy`](.clang-tidy) (`readability-identi
   - Never use C-style casts.
   - Use `static_cast<T>` for arithmetic and explicit value conversions.
   - Use `std::bit_cast<T>` (instead of `reinterpret_cast`) when converting between Win32 `LPARAM`/`LONG_PTR` integers and pointers.
-  - Always qualify `auto` with `*` or `&` (`auto *hdc = ...;`, `const auto &entry : dir_it`).
+  - Always qualify `auto` with `*` or `&` (`auto *hdc = ...;`, `const auto &name: image_names`).
 - **RAII & Resource Management:**
   - Never leak raw OS, GDI, or GDI+ handles.
-  - Wrap lifetime-managed handles in RAII classes (`gdiplus_session`) or custom-deleter smart pointers (`unique_bitmap` via `std::unique_ptr` with a C++20 stateless lambda deleter).
+  - Wrap lifetime-managed handles in RAII classes (`gdiplus_session`, `find_file_handle`) or custom-deleter smart pointers (`unique_bitmap` via `std::unique_ptr` with a C++20 stateless lambda deleter).
   - Explicitly `= delete` copy and move constructors/assignment operators on non-copyable RAII resource guards.
-- **Standard Algorithms & Ranges:** Prefer `<algorithm>` ranges (`std::ranges::sort`, `std::ranges::any_of`), `std::string_view` / `std::wstring_view`, `std::array` for fixed-size buffers, and `<utility>` safe integer comparisons (`std::cmp_greater_equal`).
+- **Standard Algorithms & Ranges:** Prefer `<algorithm>` ranges (`std::ranges::sort`, `std::ranges::any_of`, `std::ranges::all_of`), `std::wstring_view`, `std::array` for fixed-size buffers, and `<utility>` safe integer comparisons (`std::cmp_greater_equal`).
 
 ---
 
@@ -101,9 +101,9 @@ Formatting is enforced by [`.clang-format`](.clang-format) (LLVM-based, C++20):
 - **Line Length:** Maximum **120 columns**.
 - **Indentation:** Width of 4 columns (`IndentWidth: 4`, `TabWidth: 4`).
 - **Control Statements & Braces:**
-  - **No space before parentheses:** `if(cond)`, `for(const auto &item: list)`, `switch(msg)`, `catch(const std::exception &ex)`.
+  - **No space before parentheses:** `if(cond)`, `for(const auto &item: list)`, `switch(msg)`.
   - Always use braces `{ ... }` for control blocks.
-  - Pointer and reference qualifiers bind to the right with a space before the identifier (`const fs::path &path`, `const char *message`).
+  - Pointer and reference qualifiers bind to the right with a space before the identifier (`const std::wstring &file_path`, `const wchar_t *message`).
 - **Include Directives:**
   - Include every header you use directly (IWYU mindset).
   - Use quotes (`"RaidViewer/..."`) for project headers and angle brackets (`<...>`) for standard library and system headers.
@@ -129,10 +129,11 @@ All `clang-tidy` diagnostics must be resolved before committing. Avoid `NOLINT` 
 ## 8. Error Handling & Performance
 
 - **No Silent Failures:** Never ignore errors or silently skip broken states (`if(ptr == nullptr) return;` when `ptr` is required).
-- **Boundary Validation & Clean Unwinding:**
-  - Use `std::error_code` overloads for `std::filesystem` operations and check errors immediately with descriptive context.
-  - Release any temporary GDI objects (`SelectObject`, `DeleteObject`, `DeleteDC`, `ReleaseDC`, `EndPaint`) before throwing or returning on error.
-  - Catch fatal exceptions at top-level entry points (`main` and `wnd_proc`), surface a clear error dialog (`show_error_dialog`), and terminate with `EXIT_FAILURE`.
+- **Explicit Error Returns (No Exceptions):**
+  - C++ exceptions are disabled (`/EHs-c-` and `_HAS_EXCEPTIONS=0`) to keep the binary footprint minimal.
+  - Use native Win32 directory/file APIs (`FindFirstFileW`, `FindNextFileW`, `CreateDirectoryW`) with RAII handle guards (`find_file_handle`) rather than `<filesystem>`.
+  - Release any temporary GDI objects (`SelectObject`, `DeleteObject`, `DeleteDC`, `ReleaseDC`, `EndPaint`) before returning on error.
+  - Surface fatal errors via `show_error_dialog` / `report_win32_error` (`MessageBoxW`), propagate failure through `[[nodiscard]]` return values, and terminate cleanly with `PostQuitMessage(EXIT_FAILURE)` or `EXIT_FAILURE`.
 - **Cold-Path Baking vs. Hot-Path Rendering:**
   - Keep `WM_PAINT` (`handle_paint`) fast and allocation-free where possible: decode and scale images into screen-sized `HBITMAP` slides once when a folder is opened, then render via `BitBlt` double-buffering (`WM_ERASEBKGND` returning `1`).
 
