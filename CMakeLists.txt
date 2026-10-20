@@ -23,6 +23,8 @@ target_compile_definitions(RaidViewer PRIVATE
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    string(REPLACE "/O2" "/O1" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+    string(REPLACE "/Ob2" "/Ob1" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
     target_compile_options(RaidViewer PRIVATE
         /W4
         /WX
@@ -38,6 +40,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         $<$<CONFIG:Release>:/OPT:ICF>
     )
 else()
+    string(REPLACE "-O3" "-Os" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
     target_compile_options(RaidViewer PRIVATE
         -Wall
         -Wextra
