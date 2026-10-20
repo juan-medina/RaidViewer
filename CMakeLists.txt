@@ -29,9 +29,13 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         /permissive-
         /utf-8
         /GR-
+        $<$<CONFIG:Release>:/Gy>
+        $<$<CONFIG:Release>:/Gw>
     )
     target_link_options(RaidViewer PRIVATE
         /ENTRY:mainCRTStartup
+        $<$<CONFIG:Release>:/OPT:REF>
+        $<$<CONFIG:Release>:/OPT:ICF>
     )
 else()
     target_compile_options(RaidViewer PRIVATE
@@ -40,9 +44,12 @@ else()
         -pedantic
         -Werror
         -fno-rtti
+        $<$<CONFIG:Release>:-ffunction-sections>
+        $<$<CONFIG:Release>:-fdata-sections>
     )
     target_link_options(RaidViewer PRIVATE
         -Xlinker /entry:mainCRTStartup
+        $<$<CONFIG:Release>:-Wl,--gc-sections>
     )
 endif()
 
