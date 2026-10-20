@@ -28,6 +28,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         /WX
         /permissive-
         /utf-8
+        /GR-
     )
     target_link_options(RaidViewer PRIVATE
         /ENTRY:mainCRTStartup
@@ -38,6 +39,7 @@ else()
         -Wextra
         -pedantic
         -Werror
+        -fno-rtti
     )
     target_link_options(RaidViewer PRIVATE
         -Xlinker /entry:mainCRTStartup
