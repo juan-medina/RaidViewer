@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cwctype>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -96,12 +97,17 @@ constexpr auto k_config_file_name = L"RaidViewer.ini";
 
 constexpr std::string_view k_default_ini_content =
     "; RaidViewer Configuration\r\n"
-    ";\r\n"
+    "\r\n"
+    "; Monitor number (1 = primary, 2 = first secondary, etc.).\r\n"
+    "; If invalid or disconnected, falls back to the first secondary monitor (or primary if only one exists).\r\n"
+    "[Display]\r\n"
+    "Monitor = 2\r\n"
+    "\r\n"
     "; Each action accepts one or more key combinations separated by commas.\r\n"
     "; Modifiers: Control (or Ctrl), Alt, Shift, Win (combine with '+', e.g. Control+Alt+Q)\r\n"
     "; Keys: F1-F24, A-Z, 0-9, NumPad0-NumPad9, Up, Down, Left, Right,\r\n"
     ";       PageUp, PageDown, Home, End, Insert, Delete, Space, Enter, Esc, Tab, Backspace\r\n"
-    "\r\n"
+    ";\r\n"
     "; Global hotkeys work at all times, even while playing your game.\r\n"
     "[GlobalHotkeys]\r\n"
     "Previous  = F13\r\n"
@@ -655,10 +661,44 @@ read_ini_value(const wchar_t *section, const wchar_t *key, const wchar_t *defaul
     return joined;
 }
 
-[[nodiscard]] auto load_key_config(const std::wstring &config_path, app_state &app) -> bool {
+[[nodiscard]] auto parse_positive_int(std::wstring_view text, int &out_value) noexcept -> bool {
+    const auto trimmed = trim_whitespace(text);
+    if(trimmed.empty()) {
+        return false;
+    }
+    int value = 0;
+    for(const wchar_t chr: trimmed) {
+        if(chr < L'0' || chr > L'9') {
+            return false;
+        }
+        const int digit = static_cast<int>(chr - L'0');
+        if(value > (std::numeric_limits<int>::max() - digit) / 10) {
+            return false;
+        }
+        value = (value * 10) + digit;
+    }
+    if(value < 1) {
+        return false;
+    }
+    out_value = value;
+    return true;
+}
+
+[[nodiscard]] auto select_monitor_index(std::size_t monitor_count, int configured_monitor) noexcept -> std::size_t {
+    if(configured_monitor >= 1 && std::cmp_less_equal(configured_monitor, monitor_count)) {
+        return static_cast<std::size_t>(configured_monitor - 1);
+    }
+    return (monitor_count > 1) ? 1U : 0U;
+}
+
+[[nodiscard]] auto load_config(const std::wstring &config_path, app_state &app, int &out_monitor_number) -> bool {
     if(!ensure_default_config_file(config_path)) {
         return false;
     }
+
+    const auto monitor_str = read_ini_value(L"Display", L"Monitor", L"2", config_path);
+    int parsed_monitor = 0;
+    out_monitor_number = parse_positive_int(monitor_str, parsed_monitor) ? parsed_monitor : 0;
 
     app.global_hotkeys.clear();
     app.window_keys.clear();
@@ -1375,12 +1415,34 @@ auto run_app() -> int {
         return EXIT_FAILURE;
     }
 
-    // 4. Query display monitor (pick 2nd monitor if available, otherwise primary)
+    app_state app{
+        .mode = view_mode::folder_list,
+        .folders = {},
+        .selected_folder_index = 0,
+        .current_slide_index = 0,
+        .scroll_offset = 0,
+        .mon_width = 0,
+        .mon_height = 0,
+        .images_dir = images_dir,
+        .global_hotkeys = {},
+        .window_keys = {},
+        .footer_legend = {},
+        .close_keys_label = {},
+    };
+
+    // 4. Load or generate RaidViewer.ini next to the executable
+    const auto config_path = join_path(exe_dir, k_config_file_name);
+    int configured_monitor = 2;
+    if(!load_config(config_path, app, configured_monitor)) {
+        return EXIT_FAILURE;
+    }
+
+    // 5. Query display monitors (use configured monitor if valid, else 2nd monitor or primary)
     std::vector<RECT> monitors;
     if(!get_all_monitor_rects(monitors)) {
         return EXIT_FAILURE;
     }
-    const std::size_t target_index = (monitors.size() > 1) ? 1U : 0U;
+    const std::size_t target_index = select_monitor_index(monitors.size(), configured_monitor);
     const auto mon_rect = monitors[target_index];
     const int mon_width = mon_rect.right - mon_rect.left;
     const int mon_height = mon_rect.bottom - mon_rect.top;
@@ -1390,27 +1452,8 @@ auto run_app() -> int {
         show_error_dialog(msg.c_str());
         return EXIT_FAILURE;
     }
-
-    app_state app{
-        .mode = view_mode::folder_list,
-        .folders = {},
-        .selected_folder_index = 0,
-        .current_slide_index = 0,
-        .scroll_offset = 0,
-        .mon_width = mon_width,
-        .mon_height = mon_height,
-        .images_dir = images_dir,
-        .global_hotkeys = {},
-        .window_keys = {},
-        .footer_legend = {},
-        .close_keys_label = {},
-    };
-
-    // 5. Load or generate RaidViewer.ini next to the executable
-    const auto config_path = join_path(exe_dir, k_config_file_name);
-    if(!load_key_config(config_path, app)) {
-        return EXIT_FAILURE;
-    }
+    app.mon_width = mon_width;
+    app.mon_height = mon_height;
 
     // 6. Discover strategy folders inside images/
     if(!discover_folders(app)) {

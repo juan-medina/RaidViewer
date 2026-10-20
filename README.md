@@ -44,6 +44,11 @@ Built in pure C++20 using native Win32 and GDI (`~46 KB` executable, zero extern
 On first launch, `RaidViewer.exe` automatically generates `RaidViewer.ini` in the same directory if it does not already exist:
 
 ```ini
+; Monitor number (1 = primary, 2 = first secondary, etc.).
+; If invalid or disconnected, falls back to the first secondary monitor (or primary if only one exists).
+[Display]
+Monitor = 2
+
 ; Global hotkeys work at all times, even while playing your game.
 [GlobalHotkeys]
 Previous  = F13
@@ -59,6 +64,7 @@ Selection = Enter, Space
 Close     = Esc
 ```
 
+- **Monitor selection:** Set `Monitor` under `[Display]` (1-based: `1` = primary, `2` = first secondary, etc.). Defaults to `2` and falls back to the first secondary monitor (or primary when only one display is connected) if the number is out of range or invalid.
 - **Multiple bindings:** Separate multiple key combinations for the same action with commas (e.g., `F16, Control+Alt+Q`).
 - **Modifiers:** `Control` (or `Ctrl`), `Alt`, `Shift`, `Win` — combine with `+` (e.g., `Ctrl+Shift+Right`).
 - **Supported keys:** `F1`–`F24`, `A`–`Z`, `0`–`9`, `NumPad0`–`NumPad9`, `Up`, `Down`, `Left`, `Right`, `PageUp`, `PageDown`, `Home`, `End`, `Insert`, `Delete`, `Space`, `Enter`, `Esc`, `Tab`, `Backspace`, `Plus`, `Minus`, `Comma`, `Period`, `Multiply`, `Add`, `Subtract`, `Decimal`, `Divide`, `Pause`.
