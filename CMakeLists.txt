@@ -10,7 +10,27 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-add_executable(RaidViewer WIN32 src/main.cpp)
+add_executable(RaidViewer WIN32
+    include/RaidViewer/app_state.hpp
+    include/RaidViewer/config.hpp
+    include/RaidViewer/display.hpp
+    include/RaidViewer/input_manager.hpp
+    include/RaidViewer/platform.hpp
+    include/RaidViewer/renderer.hpp
+    include/RaidViewer/strategy_deck.hpp
+    include/RaidViewer/window.hpp
+    src/app_state.cpp
+    src/config.cpp
+    src/display.cpp
+    src/input_manager.cpp
+    src/main.cpp
+    src/platform.cpp
+    src/renderer.cpp
+    src/strategy_deck.cpp
+    src/window.cpp
+)
+
+target_include_directories(RaidViewer PRIVATE include)
 
 target_compile_features(RaidViewer PRIVATE cxx_std_20)
 set_target_properties(RaidViewer PROPERTIES CXX_EXTENSIONS OFF)
