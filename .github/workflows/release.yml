@@ -1,0 +1,109 @@
+# SPDX-FileCopyrightText: 2026 Juan Medina
+# SPDX-License-Identifier: MIT
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Verify, Package & Publish Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Validate tag format (vX.Y.Z)
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') {
+            Write-Error "Invalid tag format '$tag'. Expected format: vX.Y.Z (e.g. v1.0.1)."
+            exit 1
+          }
+          Write-Host "Releasing tag: $tag"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify release-notes.md exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "release-notes.md")) {
+            Write-Error "release-notes.md not found in repository root."
+            exit 1
+          }
+
+      - name: Configure MSVC Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Ensure LLVM tools (clang-format & clang-tidy) are in PATH
+        shell: pwsh
+        run: |
+          $llvmPaths = @(
+            "C:\Program Files\LLVM\bin",
+            "$env:VCToolsInstallDir\..\..\Llvm\x64\bin"
+          )
+          foreach ($p in $llvmPaths) {
+            if (Test-Path (Join-Path $p "clang-tidy.exe")) {
+              $resolved = (Resolve-Path $p).Path
+              echo $resolved | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+              Write-Host "Using LLVM from: $resolved"
+              exit 0
+            }
+          }
+          choco install llvm --no-progress -y
+          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Verify formatting (clang-format)
+        shell: pwsh
+        run: |
+          clang-format --version
+          clang-format --dry-run --Werror src/main.cpp
+
+      - name: Configure CMake
+        shell: pwsh
+        run: cmake --preset default
+
+      - name: Build Debug
+        shell: pwsh
+        run: cmake --build --preset debug
+
+      - name: Build Release
+        shell: pwsh
+        run: cmake --build --preset release
+
+      - name: Run static analysis (clang-tidy)
+        shell: pwsh
+        run: |
+          clang-tidy --version
+          clang-tidy -p build --warnings-as-errors=* src/main.cpp
+
+      - name: Package RaidViewer-<tag>.zip (exe only)
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $exePath = "build/Release/RaidViewer.exe"
+          if (-not (Test-Path $exePath)) {
+            Write-Error "Expected binary not found at '$exePath'."
+            exit 1
+          }
+          $zipName = "RaidViewer-$tag.zip"
+          Compress-Archive -Path $exePath -DestinationPath $zipName -Force
+          Write-Host "Created $zipName"
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $zipName = "RaidViewer-$tag.zip"
+          gh release create $tag $zipName `
+            --title "RaidViewer $tag" `
+            --notes-file release-notes.md `
+            --verify-tag
