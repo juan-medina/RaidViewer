@@ -12,6 +12,8 @@
     "DWIN",
     "ENTERSIZEMOVE",
     "ERASEBKGND",
+    "fdata",
+    "ffunction",
     "Gdiplus",
     "GWLP",
     "HBITMAP",

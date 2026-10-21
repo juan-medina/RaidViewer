@@ -82,5 +82,7 @@ private:
 void show_error_dialog(const wchar_t *message) noexcept;
 void report_win32_error(std::wstring_view action, DWORD error_code = GetLastError());
 [[nodiscard]] auto join_path(std::wstring_view base, std::wstring_view child) -> std::wstring;
+[[nodiscard]] auto resolve_path(std::wstring_view base_dir, std::wstring_view target_path) -> std::wstring;
+[[nodiscard]] auto directory_exists(std::wstring_view path) -> bool;
 [[nodiscard]] auto is_dot_entry(std::wstring_view name) noexcept -> bool;
 [[nodiscard]] auto get_exe_directory(std::wstring &out_dir) -> bool;

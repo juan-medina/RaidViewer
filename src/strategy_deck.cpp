@@ -198,7 +198,7 @@
     const find_file_handle find_handle(FindFirstFileW(search_pattern.c_str(), &find_data));
     if(!find_handle.valid()) {
         const DWORD err_code = GetLastError();
-        if(err_code != ERROR_FILE_NOT_FOUND) {
+        if(err_code != ERROR_FILE_NOT_FOUND && err_code != ERROR_PATH_NOT_FOUND) {
             report_win32_error(L"FindFirstFileW in '" + std::wstring(images_dir) + L"'", err_code);
             return false;
         }

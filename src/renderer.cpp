@@ -108,15 +108,25 @@ namespace {
               DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
 
     // Folder Items
-    if(app.folders.empty()) {
+    if(!app.images_dir_exists) {
         SelectObject(hdc_mem, font_item);
         SetTextColor(hdc_mem, RGB(180, 180, 180));
-        RECT empty_rect{80, 200, app.mon_width - 80, 320};
+        RECT empty_rect{80, 200, app.mon_width - 80, app.mon_height - 100};
+        const std::wstring msg = L"Image folder not found: '" + app.images_dir
+                                 + L"'.\n"
+                                   L"Create the directory or update RaidViewer.ini.\n("
+                                 + app.close_keys_label + L" to close)";
+        DrawTextW(hdc_mem, msg.c_str(), -1, &empty_rect, DT_LEFT | DT_NOPREFIX | DT_WORDBREAK);
+    } else if(app.folders.empty()) {
+        SelectObject(hdc_mem, font_item);
+        SetTextColor(hdc_mem, RGB(180, 180, 180));
+        RECT empty_rect{80, 200, app.mon_width - 80, app.mon_height - 100};
         const std::wstring empty_msg =
-            L"No folders found inside 'images'.\n"
-            L"Create strategy subfolders (e.g. 'M12S - Phase 1') inside the 'images' folder.\n("
+            L"No folders found inside '" + app.images_dir
+            + L"'.\n"
+              L"Create strategy subfolders (e.g. 'M12S - Phase 1') inside the image folder.\n("
             + app.close_keys_label + L" to close)";
-        DrawTextW(hdc_mem, empty_msg.c_str(), -1, &empty_rect, DT_LEFT | DT_NOPREFIX);
+        DrawTextW(hdc_mem, empty_msg.c_str(), -1, &empty_rect, DT_LEFT | DT_NOPREFIX | DT_WORDBREAK);
     } else {
         const int start_y = 150;
         const int row_h = 64;

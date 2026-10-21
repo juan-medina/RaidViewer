@@ -9,7 +9,7 @@
 
 **RaidViewer** is an ultra-minimal second-monitor raid strategy viewer for Windows.
 
-Built in pure C++20 using native Win32 and GDI (`~60 KB` executable, zero external dependencies), it requires **no OpenGL, Direct3D, or Vulkan**. It sleeps at 0% CPU/GPU usage between inputs and uses global hotkeys so you can switch raid diagrams mid-pull without ever alt-tabbing out of your game.
+Built in pure C++20 using native Win32 and GDI (tiny executable, zero external dependencies), it requires **no OpenGL, Direct3D, or Vulkan**. It sleeps at 0% CPU/GPU usage between inputs and uses global hotkeys so you can switch raid diagrams mid-pull without ever alt-tabbing out of your game.
 
 ---
 
@@ -18,7 +18,7 @@ Built in pure C++20 using native Win32 and GDI (`~60 KB` executable, zero extern
 - **Zero Gameplay Impact:** Pure GDI `BitBlt` rendering and an event-driven message loop—no GPU context, no background timers, and no frame-pacing interference.
 - **No Alt-Tabbing:** Global hotkeys (`F13`–`F16` and `Control+Alt+Q` by default, customizable via `RaidViewer.ini`) work while your game stays in focus.
 - **Second-Monitor Native:** Automatically opens borderless fullscreen on your secondary monitor (or primary if only one display is connected) with Per-Monitor V2 DPI scaling.
-- **Tiny & Portable:** Standalone `~60 KB` executable using only standard Windows system libraries.
+- **Tiny & Portable:** Standalone tiny executable using only standard Windows system libraries.
 
 ---
 
@@ -51,6 +51,11 @@ On first launch, `RaidViewer.exe` automatically generates `RaidViewer.ini` in th
 Monitor = 2
 Mode    = Fullscreen
 
+; Folder containing raid strategy images and subfolders.
+; Supports both relative paths (relative to RaidViewer.exe) and absolute paths.
+[Images]
+Folder  = images
+
 ; Global hotkeys work at all times, even while playing your game.
 [GlobalHotkeys]
 Previous  = F13
@@ -68,6 +73,7 @@ Close     = Esc
 
 - **Monitor selection:** Set `Monitor` under `[Display]` (1-based: `1` = primary, `2` = first secondary, etc.). Defaults to `2` and falls back to the first secondary monitor (or primary when only one display is connected) if the number is out of range or invalid.
 - **Display mode:** Set `Mode` under `[Display]` to `Fullscreen` (default borderless fullscreen) or `Window` (resizable window starting at 3/4 of the target monitor's dimensions).
+- **Images folder:** Set `Folder` under `[Images]` (supports relative paths like `images` or absolute paths like `D:\RaidStrats`). Defaults to `images`.
 - **Multiple bindings:** Separate multiple key combinations for the same action with commas (e.g., `F16, Control+Alt+Q`).
 - **Modifiers:** `Control` (or `Ctrl`), `Alt`, `Shift`, `Win` — combine with `+` (e.g., `Ctrl+Shift+Right`).
 - **Supported keys:** `F1`–`F24`, `A`–`Z`, `0`–`9`, `NumPad0`–`NumPad9`, `Up`, `Down`, `Left`, `Right`, `PageUp`, `PageDown`, `Home`, `End`, `Insert`, `Delete`, `Space`, `Enter`, `Esc`, `Tab`, `Backspace`, `Plus`, `Minus`, `Comma`, `Period`, `Multiply`, `Add`, `Subtract`, `Decimal`, `Divide`, `Pause`.

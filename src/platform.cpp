@@ -26,6 +26,26 @@ void report_win32_error(std::wstring_view action, DWORD error_code) {
     return std::wstring(base) + L"\\" + std::wstring(child);
 }
 
+[[nodiscard]] auto resolve_path(std::wstring_view base_dir, std::wstring_view target_path) -> std::wstring {
+    if(target_path.empty()) {
+        return std::wstring(base_dir);
+    }
+    std::wstring target_str(target_path);
+    if(PathIsRelativeW(target_str.c_str()) == TRUE) {
+        return join_path(base_dir, target_path);
+    }
+    return target_str;
+}
+
+[[nodiscard]] auto directory_exists(std::wstring_view path) -> bool {
+    if(path.empty()) {
+        return false;
+    }
+    const std::wstring path_str(path);
+    const DWORD attrs = GetFileAttributesW(path_str.c_str());
+    return (attrs != INVALID_FILE_ATTRIBUTES) && ((attrs & FILE_ATTRIBUTE_DIRECTORY) != 0);
+}
+
 [[nodiscard]] auto is_dot_entry(std::wstring_view name) noexcept -> bool {
     return name == L"." || name == L"..";
 }

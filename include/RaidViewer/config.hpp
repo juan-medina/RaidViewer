@@ -40,18 +40,19 @@ struct window_key_binding {
     key_combo combo{};
 };
 
+// --- Configuration Constants ---
+constexpr auto k_images_dir_name = L"images";
+constexpr auto k_config_file_name = L"RaidViewer.ini";
+
 struct app_config {
     display_mode win_mode = display_mode::fullscreen;
     int monitor_number = 2;
+    std::wstring images_folder = k_images_dir_name;
     std::vector<global_hotkey_binding> global_hotkeys;
     std::vector<window_key_binding> window_keys;
     std::wstring footer_legend;
     std::wstring close_keys_label;
 };
-
-// --- Configuration Constants ---
-constexpr auto k_images_dir_name = L"images";
-constexpr auto k_config_file_name = L"RaidViewer.ini";
 
 // --- Configuration Loader ---
 [[nodiscard]] auto load_config(const std::wstring &config_path, app_config &out_config) -> bool;

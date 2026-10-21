@@ -13,7 +13,7 @@ Guidance for AI coding agents working in **RaidViewer**.
 Every design choice serves one constraint: **zero impact on the running game.**
 
 - **No GPU APIs (No OpenGL, Direct3D, or Vulkan):** Rendering uses pure Win32 GDI (`BitBlt`) and GDI+ (cold-path image decoding only). It never creates a 3D device context, never competes for VRAM or GPU scheduling, and never triggers driver overlays or frame-pacing hooks.
-- **Zero External Dependencies (~60 KB binary):** Built exclusively against libraries shipped natively with Windows (`user32`, `gdi32`, `gdiplus`, `shlwapi`), with RTTI and C++ exceptions disabled and native Win32 file APIs (`FindFirstFileW` / `FindNextFileW`) instead of `<filesystem>`. Never add third-party libraries, package managers, or UI frameworks.
+- **Zero External Dependencies (tiny binary):** Built exclusively against libraries shipped natively with Windows (`user32`, `gdi32`, `gdiplus`, `shlwapi`), with RTTI and C++ exceptions disabled and native Win32 file APIs (`FindFirstFileW` / `FindNextFileW`) instead of `<filesystem>`. Never add third-party libraries, package managers, or UI frameworks.
 - **No Alt-Tabbing (Global Hotkeys):** Controlled via `RegisterHotKey` (`F13`–`F16`, typically mapped to macro keys, mouse buttons, or a Stream Deck) so the player can navigate folders and slides without taking focus away from the game.
 
 ---

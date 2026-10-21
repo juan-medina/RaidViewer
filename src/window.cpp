@@ -225,18 +225,10 @@ auto run_app() -> int {
         return EXIT_FAILURE;
     }
 
-    // 2. Ensure images directory exists
+    // 2. Query executable directory
     std::wstring exe_dir;
     if(!get_exe_directory(exe_dir)) {
         return EXIT_FAILURE;
-    }
-    const auto images_dir = join_path(exe_dir, k_images_dir_name);
-    if(CreateDirectoryW(images_dir.c_str(), nullptr) == FALSE) {
-        const DWORD err_code = GetLastError();
-        if(err_code != ERROR_ALREADY_EXISTS) {
-            report_win32_error(L"CreateDirectoryW for '" + images_dir + L"'", err_code);
-            return EXIT_FAILURE;
-        }
     }
 
     // 3. Start GDI+ session
@@ -273,9 +265,13 @@ auto run_app() -> int {
     }
 
     // 6. Discover strategy folders
+    const auto images_dir = resolve_path(exe_dir, config.images_folder);
+    const bool images_dir_exists = directory_exists(images_dir);
     std::vector<strat_folder> folders;
-    if(!discover_folders(images_dir, folders)) {
-        return EXIT_FAILURE;
+    if(images_dir_exists) {
+        if(!discover_folders(images_dir, folders)) {
+            return EXIT_FAILURE;
+        }
     }
 
     app_state app{
@@ -283,6 +279,7 @@ auto run_app() -> int {
         .win_mode = config.win_mode,
         .in_size_move = false,
         .is_resizing = false,
+        .images_dir_exists = images_dir_exists,
         .folders = std::move(folders),
         .selected_folder_index = 0,
         .current_slide_index = 0,

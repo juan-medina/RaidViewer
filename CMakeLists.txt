@@ -87,15 +87,6 @@ target_link_libraries(RaidViewer PRIVATE
     shlwapi
 )
 
-# Copy images from project root to target output directory on build
-add_custom_command(
-    TARGET RaidViewer
-    POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/images"
-        "$<TARGET_FILE_DIR:RaidViewer>/images"
-    COMMENT "Copying images to output directory..."
-)
 
 # Run target: builds RaidViewer and launches it
 add_custom_target(run

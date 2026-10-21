@@ -66,6 +66,11 @@ constexpr std::string_view k_default_ini_content =
     "Monitor = 2\r\n"
     "Mode    = Fullscreen\r\n"
     "\r\n"
+    "; Folder containing raid strategy images and subfolders.\r\n"
+    "; Supports both relative paths (relative to RaidViewer.exe) and absolute paths.\r\n"
+    "[Images]\r\n"
+    "Folder  = images\r\n"
+    "\r\n"
     "; Each action accepts one or more key combinations separated by commas.\r\n"
     "; Modifiers: Control (or Ctrl), Alt, Shift, Win (combine with '+', e.g. Control+Alt+Q)\r\n"
     "; Keys: F1-F24, A-Z, 0-9, NumPad0-NumPad9, Up, Down, Left, Right,\r\n"
@@ -304,7 +309,7 @@ constexpr std::array<action_config_spec, 4> k_action_specs = {{
 [[nodiscard]] auto
 read_ini_value(const wchar_t *section, const wchar_t *key, const wchar_t *default_val, const std::wstring &config_path)
     -> std::wstring {
-    std::array<wchar_t, 256> buffer{};
+    std::array<wchar_t, 512> buffer{};
     const DWORD len = GetPrivateProfileStringW(
         section, key, default_val, buffer.data(), static_cast<DWORD>(buffer.size()), config_path.c_str());
     return {buffer.data(), len};
@@ -376,6 +381,10 @@ read_ini_value(const wchar_t *section, const wchar_t *key, const wchar_t *defaul
     if(!parse_display_mode(mode_str, out_config.win_mode)) {
         return false;
     }
+
+    const auto folder_str = read_ini_value(L"Images", L"Folder", k_images_dir_name, config_path);
+    const auto trimmed_folder = trim_whitespace(folder_str);
+    out_config.images_folder = trimmed_folder.empty() ? std::wstring(k_images_dir_name) : std::wstring(trimmed_folder);
 
     out_config.global_hotkeys.clear();
     out_config.window_keys.clear();

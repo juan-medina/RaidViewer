@@ -22,6 +22,7 @@ struct app_state {
     display_mode win_mode = display_mode::fullscreen;
     bool in_size_move = false;
     bool is_resizing = false;
+    bool images_dir_exists = true;
     std::vector<strat_folder> folders;
     int selected_folder_index = 0;
     int current_slide_index = 0;
