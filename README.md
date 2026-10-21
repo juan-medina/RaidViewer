@@ -1,69 +1,64 @@
 # RaidViewer
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-478CBF.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
-[![Conduct](https://img.shields.io/badge/Conduct-Covenat%202.0-478CBF.svg?style=for-the-badge)](https://www.contributor-covenant.org/version/2/0/code_of_conduct/)
+[![Conduct](https://img.shields.io/badge/Conduct-Covenant%202.0-478CBF.svg?style=for-the-badge)](https://www.contributor-covenant.org/version/2/0/code_of_conduct/)
 [![Made with C++20](https://img.shields.io/badge/C%2B%2B-20-478CBF?style=for-the-badge&logo=c%2B%2B&logoColor=white)](https://isocpp.org/)
 [![CI](https://img.shields.io/github/actions/workflow/status/juan-medina/RaidViewer/ci.yml?branch=main&style=for-the-badge&logo=github&label=CI)](https://github.com/juan-medina/RaidViewer/actions/workflows/ci.yml)
 
----
-
-**RaidViewer** is an ultra-minimal second-monitor raid strategy viewer for Windows.
-
-Built in pure C++20 using native Win32 and GDI (tiny executable, zero external dependencies), it requires **no OpenGL, Direct3D, or Vulkan**. It sleeps at 0% CPU/GPU usage between inputs and uses global hotkeys so you can switch raid diagrams mid-pull without ever alt-tabbing out of your game.
+**RaidViewer** is an ultra-lightweight second-monitor strategy viewer for Windows. Display raid diagrams, boss mechanics, and maps on your secondary display and flip slides mid-combat without alt-tabbing or dropping frames.
 
 ---
 
-## Features
+## Quick Start
 
-- **Zero Gameplay Impact:** Pure GDI `BitBlt` rendering and an event-driven message loop—no GPU context, no background timers, and no frame-pacing interference.
-- **No Alt-Tabbing:** Global hotkeys (`F13`–`F16` and `Control+Alt+Q` by default, customizable via `RaidViewer.ini`) work while your game stays in focus.
-- **Second-Monitor Native:** Automatically opens borderless fullscreen on your secondary monitor (or primary if only one display is connected) with Per-Monitor V2 DPI scaling.
-- **Tiny & Portable:** Standalone tiny executable using only standard Windows system libraries.
+1. **Download:** Get the latest release from [Releases](https://github.com/juan-medina/RaidViewer/releases) and extract the zip anywhere.
+2. **Add diagrams:** Put strategy folders and images (`.png`, `.jpg`, `.jpeg`, `.bmp`) inside `images/`:
+   ```text
+   images/
+   ├── Boss Phase 1/
+   │   ├── 1-spread.png
+   │   └── 2-stack.png
+   └── Boss Phase 2/
+       ├── 1-tether.png
+       └── 2-enrage.png
+   ```
+3. **Launch:** Run `RaidViewer.exe`. It automatically opens borderless fullscreen on your second monitor.
 
 ---
 
-## Usage
+## Controls
 
-1. Place your raid strategy subfolders inside the `images/` directory next to `RaidViewer.exe` (e.g., `images/M12S - Phase 1/`).
-2. Add your slide images (`.png`, `.jpg`, `.jpeg`, `.bmp`) inside each subfolder—files are ordered naturally (`1.png`, `2.png`, `10.png`).
-3. Launch `RaidViewer.exe` and control it in either of two ways:
-   - **While playing (no focus needed):** Use `F13`–`F16` or `Control+Alt+Q` (bind `F13`–`F16` to macro keys, mouse buttons, or a Stream Deck, or customize them in `RaidViewer.ini`).
-   - **When RaidViewer is focused:** Use standard keyboard keys (`Arrows`, `Enter`, `Space`, `Esc`).
+Switch slides during combat without taking focus away from your game:
 
-| Action | Anywhere (Global Hotkeys) | When Window Is Focused |
+| Action | In-Game (Global Hotkeys) | When Window Focused |
 | :--- | :--- | :--- |
-| **Previous Strategy / Slide** | `F13` | `Up` / `Left` |
-| **Next Strategy / Slide** | `F14` | `Down` / `Right` |
-| **Open Strategy** | `F15` | `Enter` / `Space` |
-| **Back to List / Close App** | `F16` / `Control+Alt+Q` | `Esc` |
+| **Previous Slide / Strat** | `F13` | `Up` / `Left` |
+| **Next Slide / Strat** | `F14` | `Down` / `Right` |
+| **Open Selected Strat** | `F15` | `Enter` / `Space` |
+| **Back to List / Exit** | `F16` or `Control+Alt+Q` | `Esc` |
+
+> **Tip:** Bind `F13`–`F16` to mouse buttons, keyboard macro keys, or Stream Deck buttons for quick in-combat paging.
 
 ---
 
 ## Configuration (`RaidViewer.ini`)
 
-On first launch, `RaidViewer.exe` automatically generates `RaidViewer.ini` in the same directory if it does not already exist:
+`RaidViewer.ini` is generated automatically next to `RaidViewer.exe` on first launch. Edit it with Notepad to customize your setup:
 
 ```ini
-; Monitor number (1 = primary, 2 = first secondary, etc.).
-; If invalid or disconnected, falls back to the first secondary monitor (or primary if only one exists).
-; Mode: Fullscreen (borderless fullscreen) or Window (resizable window, defaults to 3/4 of monitor size).
 [Display]
-Monitor = 2
-Mode    = Fullscreen
+Monitor = 2             ; 1 = primary, 2 = second monitor
+Mode    = Fullscreen    ; Fullscreen or Window
 
-; Folder containing raid strategy images and subfolders.
-; Supports both relative paths (relative to RaidViewer.exe) and absolute paths.
 [Images]
-Folder  = images
+Folder  = images        ; Relative path or full path (e.g. D:\RaidStrats)
 
-; Global hotkeys work at all times, even while playing your game.
 [GlobalHotkeys]
 Previous  = F13
 Next      = F14
 Selection = F15
 Close     = F16, Control+Alt+Q
 
-; Window keys only work when the RaidViewer window itself is focused.
 [WindowKeys]
 Previous  = Up, Left
 Next      = Down, Right
@@ -71,16 +66,25 @@ Selection = Enter, Space
 Close     = Esc
 ```
 
-- **Monitor selection:** Set `Monitor` under `[Display]` (1-based: `1` = primary, `2` = first secondary, etc.). Defaults to `2` and falls back to the first secondary monitor (or primary when only one display is connected) if the number is out of range or invalid.
-- **Display mode:** Set `Mode` under `[Display]` to `Fullscreen` (default borderless fullscreen) or `Window` (resizable window starting at 3/4 of the target monitor's dimensions).
-- **Images folder:** Set `Folder` under `[Images]` (supports relative paths like `images` or absolute paths like `D:\RaidStrats`). Defaults to `images`.
-- **Multiple bindings:** Separate multiple key combinations for the same action with commas (e.g., `F16, Control+Alt+Q`).
-- **Modifiers:** `Control` (or `Ctrl`), `Alt`, `Shift`, `Win` — combine with `+` (e.g., `Ctrl+Shift+Right`).
-- **Supported keys:** `F1`–`F24`, `A`–`Z`, `0`–`9`, `NumPad0`–`NumPad9`, `Up`, `Down`, `Left`, `Right`, `PageUp`, `PageDown`, `Home`, `End`, `Insert`, `Delete`, `Space`, `Enter`, `Esc`, `Tab`, `Backspace`, `Plus`, `Minus`, `Comma`, `Period`, `Multiply`, `Add`, `Subtract`, `Decimal`, `Divide`, `Pause`.
+- **Modifiers:** `Control` (or `Ctrl`), `Alt`, `Shift`, `Win` (e.g. `Control+Alt+Q`).
+- **Keys:** `F1`–`F24`, letters, numbers, arrow keys, `NumPad0`–`NumPad9`, `Space`, `Enter`, `Esc`, etc.
+- **Multiple bindings:** Separate combinations with commas (e.g. `F16, Control+Alt+Q`).
 
 ---
 
-## Building
+## Design Philosophy: Zero Game Impact
+
+Most overlay tools and viewer apps run on Chromium/Electron, DirectX, or game hooks that compete for GPU time, cause micro-stutters, or trigger anti-cheat warnings. RaidViewer was engineered specifically to avoid this:
+
+- **0% Idle CPU & GPU:** Sleeps on the OS event queue (`GetMessageW`). When you are not pressing a hotkey, it consumes zero processor cycles.
+- **No 3D GPU APIs:** Uses pure Win32 GDI (`BitBlt`) and GDI+ cold-path decoding. It never creates a Direct3D, OpenGL, or Vulkan context, never touches VRAM scheduling, and never hooks game render pipelines.
+- **Pre-Baked Bitmaps:** When opening a strategy folder, images decode and scale once to your monitor's exact physical pixel dimensions. Page flips are instantaneous 1:1 memory blits.
+- **Tiny & Self-Contained:** Built entirely with native Windows APIs (`user32`, `gdi32`, `gdiplus`, `shlwapi`) with C++ exceptions and RTTI disabled. Under 100 KB with zero external runtimes or DLL installers.
+- **Per-Monitor V2 DPI:** Renders crisp diagrams at native 1:1 display resolution across mixed-DPI multi-monitor setups.
+
+---
+
+## Building from Source
 
 Requires a C++20 compiler (MSVC or Clang), CMake 3.25+, and Ninja:
 
@@ -99,10 +103,11 @@ This project is licensed under the MIT License — see [`LICENSE`](LICENSE) for 
 
 ## Contributing
 
-Feel free to open issues or pull requests. For code changes, please follow our [Coding Standards](CODING_STANDARDS.md) and keep changes focused.
+Feel free to open issues or pull requests. For code changes, please check our [`CODING_STANDARDS.md`](CODING_STANDARDS.md).
 
 ---
 
 ## Contact
 
 Author: Juan Medina (copyright 2026)
+
